@@ -42,13 +42,13 @@ class Config:
                       "danger", "emergency", "injury", "unconscious"]
 
     # Parallax API (OpenAI-compatible endpoint)
-    PARALLAX_ENABLED = False
+    PARALLAX_ENABLED = False  # Set to True when Parallax is running
     PARALLAX_BASE_URL = "http://localhost:3001/v1"
     PARALLAX_API_KEY = "not-needed-for-local"
 
     # Models
-    VISION_MODEL = "moondream"  # Can be: moondream, llava, or mock
-    REASONING_MODEL = "llama-3.2-3b"  # Via Parallax
+    VISION_MODEL = "mock"  # Options: "moondream" (real AI), "mock" (testing)
+    REASONING_MODEL = "nvidia/Llama-3.1-8B-Instruct-FP8"  # Via Parallax (must match model in Parallax UI)
 
     # Modes
     MODE = "HOME"  # HOME or INDUSTRIAL

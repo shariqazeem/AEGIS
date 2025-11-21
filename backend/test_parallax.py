@@ -50,14 +50,13 @@ def test_parallax_connection():
         console.print(f"[bold green]✓ Parallax scheduler is running![/bold green]")
         console.print(f"\n[yellow]Next steps:[/yellow]")
         console.print("1. Visit the Parallax UI: [cyan]http://localhost:3001[/cyan]")
-        console.print("2. Ensure these models are configured:")
-        console.print("   • [cyan]vikhyatk/moondream2[/cyan] (Vision - ~1.8GB)")
-        console.print("   • [cyan]meta-llama/Llama-3.2-3B-Instruct[/cyan] (Reasoning - ~2GB)")
+        console.print("2. Download a reasoning model:")
+        console.print("   • [cyan]nvidia/Llama-3.1-8B-Instruct-FP8[/cyan] (recommended, ~8GB)")
+        console.print("   • [cyan]Qwen/Qwen3-0.6B[/cyan] (faster, ~600MB)")
         console.print("\n3. Make sure a worker node is joined:")
         console.print("   [dim]Run 'parallax join' in another terminal[/dim]")
-        console.print("\n4. Enable real AI in vision_sentinel.py:")
-        console.print("   [dim]config.VISION_MODEL = 'moondream'[/dim]")
-        console.print("   [dim]config.PARALLAX_ENABLED = True[/dim]")
+        console.print("\n4. Test API access:")
+        console.print("   [dim]Run this script again to verify models are loaded[/dim]")
         return True
     else:
         console.print("[bold red]✗ Parallax scheduler not detected[/bold red]")
@@ -90,44 +89,43 @@ def test_openai_api():
                 table.add_column("Model ID", style="cyan")
                 table.add_column("Status", style="green")
 
-                required_models = ["moondream", "llama"]
-                found_vision = False
                 found_reasoning = False
 
                 for model in models.data:
                     model_id = model.id.lower()
-                    status = "Ready"
+                    status = "Available"
 
-                    # Check if we have vision model (Moondream)
-                    if "moondream" in model_id:
-                        found_vision = True
-                        status = "✓ Vision model"
-
-                    # Check if we have reasoning model (Llama)
-                    if "llama" in model_id or "llama-3.2" in model_id:
+                    # Check if we have reasoning model (Llama 3.1 or Qwen)
+                    if "llama" in model_id:
                         found_reasoning = True
-                        status = "✓ Reasoning model"
+                        status = "✓ Reasoning model (recommended)"
+                    elif "qwen" in model_id:
+                        found_reasoning = True
+                        status = "✓ Reasoning model (lighter)"
 
                     table.add_row(model.id, status)
 
                 console.print(table)
 
                 # Summary
-                if found_vision and found_reasoning:
-                    console.print("\n[bold green]✓ All required models found![/bold green]")
-                    console.print("AEGIS is ready to run with real AI.")
+                console.print("\n[bold cyan]Note:[/bold cyan] Moondream vision model is loaded DIRECTLY by AEGIS (not via Parallax)")
+
+                if found_reasoning:
+                    console.print("\n[bold green]✓ Parallax has reasoning model ready![/bold green]")
+                    console.print("AEGIS can use Parallax for threat analysis.")
+                    console.print("\n[yellow]Next steps:[/yellow]")
+                    console.print("1. Update [cyan]backend/vision_sentinel.py[/cyan]:")
+                    console.print("   - Set [dim]config.PARALLAX_ENABLED = True[/dim]")
+                    console.print("   - Set [dim]config.VISION_MODEL = 'moondream'[/dim] (or 'mock' for testing)")
+                    console.print("2. Install Moondream: [dim]pip install transformers torch[/dim]")
+                    console.print("3. Run: [cyan]python vision_sentinel.py[/cyan]")
                     return True
-                elif found_vision or found_reasoning:
-                    console.print("\n[yellow]⚠ Partial setup:[/yellow]")
-                    if not found_vision:
-                        console.print("  Missing: [cyan]vikhyatk/moondream2[/cyan] (Vision)")
-                    if not found_reasoning:
-                        console.print("  Missing: [cyan]meta-llama/Llama-3.2-3B-Instruct[/cyan] (Reasoning)")
-                    console.print("\nDownload missing models via Parallax UI: [cyan]http://localhost:3001[/cyan]")
-                    return False
                 else:
-                    console.print("\n[yellow]⚠ No AEGIS-compatible models found.[/yellow]")
-                    console.print("Download via Parallax UI: [cyan]http://localhost:3001[/cyan]")
+                    console.print("\n[yellow]⚠ No reasoning models found.[/yellow]")
+                    console.print("Download a model via Parallax UI: [cyan]http://localhost:3001[/cyan]")
+                    console.print("\nRecommended models:")
+                    console.print("  • [cyan]nvidia/Llama-3.1-8B-Instruct-FP8[/cyan] (best quality, ~8GB)")
+                    console.print("  • [cyan]Qwen/Qwen3-0.6B[/cyan] (fastest, ~600MB)")
                     return False
             else:
                 console.print("[yellow]⚠ No models found. Download models via Parallax UI.[/yellow]")
