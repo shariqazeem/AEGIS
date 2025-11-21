@@ -8,16 +8,32 @@ const VideoFeed = ({ className }) => {
 
     useEffect(() => {
         // Check if video server is available
-        fetch("http://localhost:8000/health")
-            .then(res => {
+        const checkConnection = async () => {
+            try {
+                const res = await fetch("http://localhost:8000/health");
                 if (res.ok) {
-                    setIsConnected(true);
+                    const data = await res.json();
+                    console.log("Video server health:", data);
+                    if (data.camera_available) {
+                        setIsConnected(true);
+                        setError(null);
+                    } else {
+                        setError("Camera not available. Check System Preferences → Privacy → Camera");
+                        setIsConnected(false);
+                    }
                 }
-            })
-            .catch(err => {
+            } catch (err) {
+                console.error("Video server connection error:", err);
                 setError("Video server not running. Start: python backend/video_server.py");
                 setIsConnected(false);
-            });
+            }
+        };
+
+        checkConnection();
+
+        // Re-check every 5 seconds
+        const interval = setInterval(checkConnection, 5000);
+        return () => clearInterval(interval);
     }, []);
 
     return (
