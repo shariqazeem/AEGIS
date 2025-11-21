@@ -1,27 +1,56 @@
 # Parallax Installation Fix
 
-## Issue
+## Issue 1: Python Version Too Old ❌
 ```
-ERROR: editable mode currently requires a setuptools-based build
-pip version 21.2.4 is too old
+ERROR: Package 'parallax' requires a different Python: 3.9.6 not in '<3.14,>=3.11'
 ```
 
-## Solution
+**Your Python:** 3.9.6
+**Required:** 3.11.0 - 3.13.x
 
-### Step 1: Upgrade pip (REQUIRED)
+## Solution: Install Python 3.12
+
+### Option 1: Using Homebrew (Recommended)
 
 ```bash
+# Install Python 3.12 via Homebrew
+brew install python@3.12
+
+# Verify installation
+python3.12 --version
+# Should show: Python 3.12.x
+```
+
+### Option 2: Download from python.org
+
+Visit: https://www.python.org/downloads/macos/
+Download: Python 3.12.x installer for macOS
+
+---
+
+## Recreate Virtual Environment with Python 3.12
+
+```bash
+# Go to parallax directory
 cd /Users/macbookair/projects/AEGIS/parallax
+
+# Remove old venv (Python 3.9.6)
+rm -rf ./venv
+
+# Create NEW venv with Python 3.12
+python3.12 -m venv ./venv
+
+# Activate new venv
 source ./venv/bin/activate
 
-# Upgrade pip to latest version
-python3 -m pip install --upgrade pip
-```
+# Verify Python version in venv
+python --version
+# Should show: Python 3.12.x
 
-### Step 2: Install Parallax for macOS
+# Upgrade pip (optional but recommended)
+pip install --upgrade pip
 
-```bash
-# Now install Parallax (with upgraded pip)
+# Install Parallax for macOS
 pip install -e '.[mac]'
 ```
 
