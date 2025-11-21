@@ -202,11 +202,19 @@ class ParallaxClient:
     def check_connection(self) -> bool:
         """Check if Parallax is running"""
         try:
-            import httpx
-            # Check if Parallax API is accessible by listing models
-            response = httpx.get(f"{self.base_url}/models", timeout=2)
-            return response.status_code == 200
-        except:
+            from openai import OpenAI
+            client = OpenAI(base_url=self.base_url, api_key=config.PARALLAX_API_KEY)
+
+            # Try a simple API call to verify connection
+            response = client.chat.completions.create(
+                model=config.REASONING_MODEL,
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=5,
+                timeout=3
+            )
+            return True
+        except Exception as e:
+            log_event("PARALLAX", f"Connection test failed: {e}", "DEBUG")
             return False
 
     def reason_about_threat(self, vision_output: str) -> dict:
