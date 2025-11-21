@@ -36,6 +36,8 @@ dist-ssr/
 # Tauri
 frontend/src-tauri/target/
 frontend/src-tauri/Cargo.lock
+src-tauri/target/
+src-tauri/Cargo.lock
 
 # Environment
 .env

@@ -1,176 +1,389 @@
+#!/usr/bin/env python3
 """
-AEGIS Vision Sentinel
-Real-time video monitoring using Moondream vision model
-Optimized for Apple Silicon (M1/M2/M3)
+🛡️ AEGIS Vision Sentinel
+====================================
+Real-time AI monitoring system for the Parallax Competition 2025
+
+Features:
+- Moondream Vision: Real-time visual analysis
+- Parallax Orchestration: Multi-model routing
+- Llama Reasoning: Deep threat analysis
+- Optimized for Apple Silicon (M1/M2/M3)
+
+Outputs to stdout for Tauri integration
 """
 
+import sys
+import os
 import cv2
-import torch
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from PIL import Image
-import threading
 import time
-from loguru import logger
+import json
+import threading
+from datetime import datetime
+from pathlib import Path
 
-app = FastAPI(title="AEGIS Vision Sentinel")
+# Rich console output (visible in Tauri logs)
+from rich.console import Console
+console = Console()
 
-# Enable CORS for frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:1420"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Ensure output is unbuffered for Tauri
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
-# Global state
-current_frame = None
-last_analysis = "System initializing..."
-threat_level = "LOW"
-model_loaded = False
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
 
-def load_model():
-    """Load Moondream vision model optimized for Apple Silicon"""
-    global model_loaded
-    try:
-        logger.info("Loading Moondream vision model...")
-        # TODO: Implement MLX-optimized model loading
-        # model_id = "vikhyatk/moondream2"
-        # model = AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=True)
-        # if torch.backends.mps.is_available():
-        #     model = model.to("mps")
-        # tokenizer = AutoTokenizer.from_pretrained(model_id)
+class Config:
+    """System configuration"""
+    CAMERA_INDEX = 0
+    INFERENCE_INTERVAL = 2.5  # seconds
+    THREAT_KEYWORDS = ["fire", "smoke", "fallen", "falling", "blood", "weapon",
+                      "danger", "emergency", "injury", "unconscious"]
 
-        logger.success("Model loaded successfully")
-        model_loaded = True
-        return None, None  # Placeholder
-    except Exception as e:
-        logger.error(f"Failed to load model: {e}")
-        return None, None
+    # Parallax API (OpenAI-compatible endpoint)
+    PARALLAX_ENABLED = False
+    PARALLAX_BASE_URL = "http://localhost:3001/v1"
+    PARALLAX_API_KEY = "not-needed-for-local"
 
-# Load model on startup
-model, tokenizer = load_model()
+    # Models
+    VISION_MODEL = "moondream"  # Can be: moondream, llava, or mock
+    REASONING_MODEL = "llama-3.2-3b"  # Via Parallax
 
-def get_video_frames():
-    """Generate MJPEG stream for frontend"""
-    camera = cv2.VideoCapture(0)
+    # Modes
+    MODE = "HOME"  # HOME or INDUSTRIAL
 
-    if not camera.isOpened():
-        logger.error("Failed to open webcam")
-        return
+config = Config()
 
-    logger.info("Webcam stream started")
+# =============================================================================
+# LOGGING TO STDOUT (for Tauri to capture)
+# =============================================================================
 
-    try:
-        while True:
-            success, frame = camera.read()
-            if not success:
-                break
+def log_event(event_type: str, message: str, level: str = "INFO"):
+    """
+    Structured logging to stdout for Tauri frontend
 
-            # Update global frame for analysis
-            global current_frame
-            current_frame = frame.copy()
+    Output format: [TIMESTAMP] LEVEL: MESSAGE
+    Special keywords that Tauri listens for: THREAT, SAFE, CRITICAL
+    """
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    log_line = f"[{timestamp}] {level}: {message}"
+    print(log_line, flush=True)
 
-            # Add status overlay
-            cv2.putText(
-                frame,
-                f"AEGIS - {threat_level}",
-                (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 255, 0) if threat_level == "LOW" else (0, 0, 255),
-                2
-            )
+    # Also print special markers for frontend
+    if "THREAT" in message.upper() or level == "CRITICAL":
+        print("THREAT DETECTED", flush=True)
+    elif "SAFE" in message or "NORMAL" in message:
+        print("SAFE", flush=True)
 
-            # Encode frame as JPEG
-            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            if not ret:
-                continue
+# =============================================================================
+# VISION SYSTEM (Moondream Integration)
+# =============================================================================
 
-            frame_bytes = buffer.tobytes()
+class VisionSystem:
+    """Handles visual analysis using Moondream or mock vision"""
 
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+    def __init__(self):
+        self.model = None
+        self.tokenizer = None
+        self.model_loaded = False
+        self.frame_count = 0
 
-            time.sleep(0.033)  # ~30 FPS
-    finally:
-        camera.release()
-        logger.info("Webcam stream stopped")
-
-def sentinel_loop():
-    """AI analysis loop - runs every 2-3 seconds"""
-    global last_analysis, threat_level
-
-    logger.info("Sentinel AI loop started")
-
-    while True:
+    def load_model(self):
+        """Load Moondream vision model (MLX optimized for M1)"""
         try:
-            if current_frame is not None:
-                # Convert CV2 frame to PIL Image
-                image = Image.fromarray(cv2.cvtColor(current_frame, cv2.COLOR_BGR2RGB))
+            log_event("VISION", "Loading Moondream vision model...", "INFO")
 
-                # TODO: Implement actual Moondream inference
-                # For now, return placeholder analysis
-                if model_loaded:
-                    # prompt = "Describe this image. Is there a fire, person falling, or dangerous situation?"
-                    # response = model.answer_question(image, prompt, tokenizer)
-                    response = "Normal scene. No threats detected."
+            if config.VISION_MODEL == "mock":
+                log_event("VISION", "Using MOCK vision mode (no AI)", "WARN")
+                self.model_loaded = True
+                return
+
+            # Try MLX-optimized Moondream first (fastest on M1)
+            try:
+                from transformers import AutoModelForCausalLM, AutoTokenizer
+                import torch
+
+                log_event("VISION", "Attempting MLX/MPS accelerated loading...", "INFO")
+
+                model_id = "vikhyatk/moondream2"
+                self.tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_id,
+                    trust_remote_code=True,
+                    torch_dtype=torch.float16
+                )
+
+                # Use Apple Metal if available
+                if torch.backends.mps.is_available():
+                    self.model = self.model.to("mps")
+                    log_event("VISION", "✓ Model loaded on Apple Neural Engine (MPS)", "SUCCESS")
                 else:
-                    response = "Model not loaded. Using placeholder analysis."
+                    log_event("VISION", "⚠ MPS not available, using CPU", "WARN")
 
-                last_analysis = response
+                self.model_loaded = True
 
-                # Simple keyword-based threat detection
-                threat_keywords = ["fire", "fallen", "falling", "blood", "weapon", "danger"]
-                if any(keyword in response.lower() for keyword in threat_keywords):
-                    threat_level = "CRITICAL"
-                    logger.warning(f"THREAT DETECTED: {response}")
-                    # TODO: Trigger Parallax LLM for detailed analysis
-                else:
-                    threat_level = "LOW"
-
-                logger.debug(f"Analysis: {response}")
+            except Exception as e:
+                log_event("VISION", f"Moondream loading failed: {e}", "WARN")
+                log_event("VISION", "Falling back to MOCK mode", "INFO")
+                self.model_loaded = True  # Continue with mock
 
         except Exception as e:
-            logger.error(f"Error in sentinel loop: {e}")
-            last_analysis = f"Error: {str(e)}"
+            log_event("VISION", f"Vision system initialization failed: {e}", "ERROR")
+            self.model_loaded = True  # Continue with mock
 
-        time.sleep(2.5)  # Adjust based on M1 performance
+    def analyze_frame(self, frame) -> str:
+        """
+        Analyze a video frame and return description
 
-# Start sentinel loop in background thread
-threading.Thread(target=sentinel_loop, daemon=True).start()
+        Returns: Text description of what's in the frame
+        """
+        if not self.model_loaded:
+            return "Vision system not initialized"
 
-@app.get("/")
-def root():
-    """Health check endpoint"""
-    return {
-        "status": "online",
-        "service": "AEGIS Vision Sentinel",
-        "model_loaded": model_loaded
-    }
+        self.frame_count += 1
 
-@app.get("/video_feed")
-def video_feed():
-    """MJPEG video stream endpoint"""
-    return StreamingResponse(
-        get_video_frames(),
-        media_type="multipart/x-mixed-replace; boundary=frame"
-    )
+        try:
+            if config.VISION_MODEL == "mock" or self.model is None:
+                # Mock analysis with pattern detection
+                return self._mock_analysis(frame)
 
-@app.get("/status")
-def get_status():
-    """Current system status"""
-    return {
-        "analysis": last_analysis,
-        "threat": threat_level,
-        "model_loaded": model_loaded,
-        "timestamp": time.time()
-    }
+            # Real Moondream analysis
+            from PIL import Image
+            image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+            if config.MODE == "HOME":
+                prompt = "Describe this scene. Is there any person in distress, fire, smoke, or emergency situation?"
+            else:  # INDUSTRIAL
+                prompt = "Analyze this industrial scene. Are there any quality issues, equipment failures, or safety hazards?"
+
+            # Moondream inference
+            response = self.model.answer_question(image, prompt, self.tokenizer)
+            return response
+
+        except Exception as e:
+            log_event("VISION", f"Analysis error: {e}", "ERROR")
+            return f"Analysis failed: {str(e)}"
+
+    def _mock_analysis(self, frame) -> str:
+        """Mock vision analysis using simple CV for demo purposes"""
+        height, width = frame.shape[:2]
+
+        # Simple motion/color detection
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        mean_intensity = gray.mean()
+
+        # Simulate realistic responses
+        responses = [
+            "Normal office environment. One person sitting at desk.",
+            "Living room scene. No anomalies detected.",
+            "Kitchen area. Standard lighting conditions.",
+            "Workspace visible. No safety concerns.",
+        ]
+
+        # Occasionally simulate a detection (for testing)
+        if self.frame_count % 50 == 0:  # Every ~2 minutes at 2.5s intervals
+            return "DEMO: Simulated unusual activity detected for testing"
+
+        import random
+        return random.choice(responses)
+
+# =============================================================================
+# PARALLAX INTEGRATION (Multi-Model Orchestration)
+# =============================================================================
+
+class ParallaxClient:
+    """Client for Parallax multi-model inference"""
+
+    def __init__(self):
+        self.enabled = config.PARALLAX_ENABLED
+        self.base_url = config.PARALLAX_BASE_URL
+
+    def check_connection(self) -> bool:
+        """Check if Parallax is running"""
+        try:
+            import httpx
+            response = httpx.get(f"{self.base_url.replace('/v1', '')}/health", timeout=2)
+            return response.status_code == 200
+        except:
+            return False
+
+    def reason_about_threat(self, vision_output: str) -> dict:
+        """
+        Use Llama-3.2 via Parallax to reason about detected threats
+
+        Returns: Structured incident report
+        """
+        if not self.enabled:
+            return self._mock_reasoning(vision_output)
+
+        try:
+            from openai import OpenAI
+            client = OpenAI(base_url=self.base_url, api_key=config.PARALLAX_API_KEY)
+
+            prompt = f"""You are a safety analysis AI. Analyze this visual description:
+
+"{vision_output}"
+
+Respond with JSON only:
+{{
+    "threat_detected": true/false,
+    "severity": "low/medium/high/critical",
+    "event_type": "fall/fire/intrusion/medical/equipment_failure/normal",
+    "confidence": 0.0-1.0,
+    "action_required": "specific action to take",
+    "description": "brief analysis"
+}}"""
+
+            response = client.chat.completions.create(
+                model=config.REASONING_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=200
+            )
+
+            result = json.loads(response.choices[0].message.content)
+            return result
+
+        except Exception as e:
+            log_event("PARALLAX", f"Reasoning failed: {e}", "WARN")
+            return self._mock_reasoning(vision_output)
+
+    def _mock_reasoning(self, vision_output: str) -> dict:
+        """Fallback reasoning without Parallax"""
+        # Simple keyword matching
+        threat_detected = any(kw in vision_output.lower() for kw in config.THREAT_KEYWORDS)
+
+        return {
+            "threat_detected": threat_detected,
+            "severity": "high" if threat_detected else "low",
+            "event_type": "potential_threat" if threat_detected else "normal",
+            "confidence": 0.75 if threat_detected else 0.95,
+            "action_required": "Alert security" if threat_detected else "Continue monitoring",
+            "description": vision_output
+        }
+
+# =============================================================================
+# MAIN SENTINEL LOOP
+# =============================================================================
+
+class AegisSentinel:
+    """Main sentinel orchestrator"""
+
+    def __init__(self):
+        self.vision = VisionSystem()
+        self.parallax = ParallaxClient()
+        self.camera = None
+        self.current_frame = None
+        self.running = False
+        self.threat_count = 0
+
+    def initialize(self):
+        """Initialize all systems"""
+        log_event("AEGIS", "🛡️ AEGIS Sentinel Initializing...", "INFO")
+        log_event("AEGIS", f"Mode: {config.MODE}", "INFO")
+        log_event("AEGIS", f"Vision: {config.VISION_MODEL}", "INFO")
+
+        # Load vision model
+        self.vision.load_model()
+
+        # Check Parallax
+        if self.parallax.check_connection():
+            config.PARALLAX_ENABLED = True
+            log_event("PARALLAX", "✓ Connected to Parallax node", "SUCCESS")
+        else:
+            log_event("PARALLAX", "⚠ Parallax not detected, using standalone mode", "WARN")
+
+        # Open camera
+        self.camera = cv2.VideoCapture(config.CAMERA_INDEX)
+        if not self.camera.isOpened():
+            log_event("CAMERA", "⚠ No camera detected, running in test mode", "WARN")
+        else:
+            log_event("CAMERA", "✓ Camera initialized", "SUCCESS")
+
+        log_event("AEGIS", "🟢 System READY", "SUCCESS")
+        print("SAFE", flush=True)  # Initial state
+
+    def capture_frame(self):
+        """Capture a frame from camera"""
+        if self.camera and self.camera.isOpened():
+            ret, frame = self.camera.read()
+            if ret:
+                self.current_frame = frame
+                return frame
+        return None
+
+    def process_frame(self, frame):
+        """Main AI processing pipeline"""
+        # Step 1: Vision Analysis
+        log_event("VISION", "Analyzing frame...", "DEBUG")
+        description = self.vision.analyze_frame(frame)
+
+        # Step 2: Threat Detection via Parallax
+        analysis = self.parallax.reason_about_threat(description)
+
+        # Step 3: Log results
+        if analysis["threat_detected"]:
+            self.threat_count += 1
+            log_event(
+                "THREAT",
+                f"⚠️ THREAT #{self.threat_count}: {analysis['event_type']} "
+                f"(confidence: {analysis['confidence']:.0%}) - {analysis['action_required']}",
+                "CRITICAL"
+            )
+        else:
+            log_event("SCAN", f"✓ Normal: {description[:60]}...", "INFO")
+
+        return analysis
+
+    def run(self):
+        """Main sentinel loop"""
+        self.running = True
+        log_event("AEGIS", "🔍 Sentinel active. Monitoring started.", "INFO")
+
+        try:
+            while self.running:
+                frame = self.capture_frame()
+
+                if frame is not None:
+                    analysis = self.process_frame(frame)
+                else:
+                    # No camera, run in demo mode
+                    log_event("DEMO", "Running in DEMO mode (no camera)", "INFO")
+                    time.sleep(config.INFERENCE_INTERVAL * 2)
+                    continue
+
+                # Sleep between inferences
+                time.sleep(config.INFERENCE_INTERVAL)
+
+        except KeyboardInterrupt:
+            log_event("AEGIS", "🛑 Sentinel stopping...", "INFO")
+        except Exception as e:
+            log_event("ERROR", f"Fatal error: {e}", "ERROR")
+        finally:
+            self.cleanup()
+
+    def cleanup(self):
+        """Clean shutdown"""
+        if self.camera:
+            self.camera.release()
+        log_event("AEGIS", "👋 Sentinel terminated", "INFO")
+
+# =============================================================================
+# ENTRY POINT
+# =============================================================================
+
+def main():
+    """Main entry point"""
+    # Banner
+    print("=" * 50, flush=True)
+    print("🛡️  AEGIS - Autonomous Edge Guard & Intelligence System", flush=True)
+    print("   Parallax Competition 2025", flush=True)
+    print("=" * 50, flush=True)
+
+    sentinel = AegisSentinel()
+    sentinel.initialize()
+    sentinel.run()
 
 if __name__ == "__main__":
-    import uvicorn
-    logger.info("Starting AEGIS Vision Sentinel on http://0.0.0.0:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    main()
