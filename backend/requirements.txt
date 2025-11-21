@@ -1,0 +1,28 @@
+# AEGIS Backend Requirements
+# Optimized for Apple Silicon (M1/M2/M3)
+
+# Core API Framework
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+pydantic==2.9.2
+
+# Apple Silicon Optimization
+mlx==0.20.0
+mlx-lm==0.19.3
+
+# Vision & AI Models
+transformers==4.46.2
+torch==2.5.1
+torchvision==0.20.1
+pillow==11.0.0
+
+# Video Processing
+opencv-python==4.10.0.84
+
+# Utilities
+python-dotenv==1.0.1
+loguru==0.7.2
+
+# Parallax Integration (will be configured after installation)
+# Note: Follow Parallax installation guide from https://github.com/GradientHQ/parallax
