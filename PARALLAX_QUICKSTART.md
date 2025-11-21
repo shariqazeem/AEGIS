@@ -13,26 +13,38 @@
 
 ---
 
-## Step 1: Install Parallax
+## Step 1: Install Parallax (macOS - Apple Silicon)
 
-### Option A: Using Homebrew (if available)
-```bash
-brew install parallax
-```
+### Prerequisites
+- Python >= 3.11.0, < 3.14.0
+- M1/M2/M3 Mac
 
-### Option B: From Source (Most Reliable)
+### Installation Steps
+
 ```bash
+# Clone Parallax
 git clone https://github.com/GradientHQ/parallax.git
 cd parallax
-# Follow their README for installation
+
+# Create isolated Python virtual environment (RECOMMENDED)
+python3 -m venv ./venv
+source ./venv/bin/activate
+
+# Install Parallax for macOS
+pip install -e '.[mac]'
 ```
 
-### Option C: Check for Pre-built Binary
-Visit: https://github.com/GradientHQ/parallax/releases
+**Next time:** To re-activate the virtual environment:
+```bash
+cd parallax
+source ./venv/bin/activate
+```
 
 ---
 
-## Step 2: Start Parallax Node
+## Step 2: Launch Parallax Scheduler (with UI)
+
+From the parallax directory with activated virtual environment:
 
 ```bash
 parallax run
@@ -40,63 +52,90 @@ parallax run
 
 **Expected output:**
 ```
-🚀 Parallax node starting...
-✓ Server running at http://localhost:3001
+Starting scheduler...
+✓ Scheduler running at http://localhost:3001
 ✓ Web UI available at http://localhost:3001
 ```
 
-Keep this terminal running!
+**Keep this terminal running!**
+
+On macOS, if prompted for network access, click **"Allow"** so Parallax can communicate on your local network.
 
 ---
 
-## Step 3: Test Parallax Connection
+## Step 3: Configure Cluster via Web UI
 
-Open a new terminal:
+Open in your browser: **http://localhost:3001**
+
+You'll see the Parallax setup interface.
+
+### Select Node & Model Configuration:
+
+1. **Node Type:** Select your Mac (should auto-detect M1/M2/M3)
+2. **Model Selection:** Choose models to download:
+   - **`vikhyatk/moondream2`** - Vision model (~1.8GB)
+   - **`meta-llama/Llama-3.2-3B-Instruct`** - Reasoning model (~2GB)
+
+3. Click **"Continue"** to start model downloads
+
+**Note:** First download takes ~10-15 minutes depending on internet speed. Models are cached locally.
+
+---
+
+## Step 4: Join Node (Single Mac Setup)
+
+Since you're running everything on one Mac:
+
+In a **new terminal** (keep parallax scheduler running):
 
 ```bash
-cd /home/user/AEGIS/backend
-source venv/bin/activate
-python test_parallax.py
+# Activate parallax venv first
+cd /path/to/parallax
+source ./venv/bin/activate
+
+# Join the local scheduler
+parallax join
 ```
 
-**Expected output:**
-```
-🛡️  AEGIS Parallax Integration Test
-==================================================
-🔍 Testing Parallax Connection...
+Wait until the UI shows your node is **connected** (green status).
 
-✓ Parallax is running at http://localhost:3001
-```
-
-If you see ✗ (failed), Parallax isn't running. Go back to Step 2.
+You'll automatically be directed to the chat interface when ready.
 
 ---
 
-## Step 4: Download AI Models via Parallax UI
+## Step 5: Test Parallax API
 
-Open in browser: **http://localhost:3001**
+Open a **new terminal** and test the API:
 
-### Download Moondream (Vision Model)
-1. Click "Add Model" or "Models"
-2. Search: `vikhyatk/moondream2`
-3. Click "Download" (~1.8GB)
-4. Wait for download to complete
+```bash
+curl --location 'http://localhost:3001/v1/chat/completions' \
+--header 'Content-Type: application/json' \
+--data '{
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Describe what you would see in a kitchen fire."
+      }
+    ],
+    "stream": false
+}'
+```
 
-### Download Llama-3.2 (Reasoning Model)
-1. Search: `meta-llama/Llama-3.2-3B-Instruct`
-2. Click "Download" (~2GB)
-3. Wait for download to complete
+**Expected:** You should get a JSON response with AI-generated text about a kitchen fire.
 
-**Total: ~4GB** (first time only, then models stay cached)
+If this works, **Parallax is ready!** ✅
 
 ---
 
-## Step 5: Enable Real AI in AEGIS
+## Step 6: Enable Real AI in AEGIS
 
-Edit `backend/vision_sentinel.py`:
+Now connect AEGIS to Parallax!
+
+Edit `backend/vision_sentinel.py` (lines 45-50):
 
 ```python
-# Around line 45-50, change these two lines:
+# Change these two lines:
 config.VISION_MODEL = "moondream"       # Change from "mock"
 config.PARALLAX_ENABLED = True          # Change from False
 ```
@@ -105,28 +144,39 @@ Save the file.
 
 ---
 
-## Step 6: Run AEGIS with Real AI
+## Step 7: Run AEGIS with Real AI
 
-**Terminal 1: Parallax** (already running)
+You'll need **4 terminals** running simultaneously:
+
+### Terminal 1: Parallax Scheduler (already running)
 ```bash
+cd /path/to/parallax
+source ./venv/bin/activate
 parallax run
 ```
 
-**Terminal 2: Video Server** (already running)
+### Terminal 2: Parallax Worker (already running)
 ```bash
-cd backend
+cd /path/to/parallax
+source ./venv/bin/activate
+parallax join
+```
+
+### Terminal 3: AEGIS Video Server
+```bash
+cd /home/user/AEGIS/backend
 source venv/bin/activate
 python video_server.py
 ```
 
-**Terminal 3: AI Sentinel** (NEW - with real AI!)
+### Terminal 4: AEGIS AI Sentinel (NEW - with real AI!)
 ```bash
-cd backend
+cd /home/user/AEGIS/backend
 source venv/bin/activate
 python vision_sentinel.py
 ```
 
-**Expected output:**
+**Expected output from Sentinel:**
 ```
 ==================================================
 🛡️  AEGIS - Autonomous Edge Guard & Intelligence System
@@ -135,6 +185,7 @@ python vision_sentinel.py
 [13:45:01] INFO: 🛡️ AEGIS Sentinel Initializing...
 [13:45:01] INFO: Mode: HOME
 [13:45:01] INFO: Vision: moondream
+[13:45:02] INFO: Loading Moondream vision model...
 [13:45:02] INFO: Attempting MLX/MPS accelerated loading...
 [13:45:10] SUCCESS: ✓ Model loaded on Apple Neural Engine (MPS)
 [13:45:11] SUCCESS: ✓ Connected to Parallax node
@@ -145,14 +196,17 @@ SAFE
 [13:45:15] INFO: ✓ Normal: Office desk with computer and person sitting...
 ```
 
-**Terminal 4: Frontend** (already running)
+### Terminal 5: AEGIS Frontend
 ```bash
+cd /home/user/AEGIS
 npm run tauri:dev
 ```
 
+Your dashboard should now show **real-time AI analysis** from Moondream!
+
 ---
 
-## Step 7: Test Threat Detection
+## Step 8: Test Threat Detection
 
 ### Test 1: Normal Scene
 - Point camera at your desk
