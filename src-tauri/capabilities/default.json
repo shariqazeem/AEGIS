@@ -6,18 +6,6 @@
     "main"
   ],
   "permissions": [
-    "core:default",
-    "shell:allow-open",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "binaries/sentinel",
-          "cmd": "",
-          "args": true,
-          "sidecar": true
-        }
-      ]
-    }
+    "core:default"
   ]
 }
