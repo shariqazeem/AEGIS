@@ -42,12 +42,12 @@ class Config:
                       "danger", "emergency", "injury", "unconscious"]
 
     # Parallax API (OpenAI-compatible endpoint)
-    PARALLAX_ENABLED = False  # Set to True when Parallax is running
+    PARALLAX_ENABLED = True  # Set to True when Parallax is running
     PARALLAX_BASE_URL = "http://localhost:3001/v1"
     PARALLAX_API_KEY = "not-needed-for-local"
 
     # Models
-    VISION_MODEL = "mock"  # Options: "moondream" (real AI), "mock" (testing)
+    VISION_MODEL = "mock"  # Options: "moondream" (real AI), "mock" (testing) - Set to "moondream" after installing transformers
     REASONING_MODEL = "Qwen/Qwen3-0.6B"  # Via Parallax (must match model in Parallax UI) - Lightweight model for Macs
 
     # Modes
@@ -203,7 +203,8 @@ class ParallaxClient:
         """Check if Parallax is running"""
         try:
             import httpx
-            response = httpx.get(f"{self.base_url.replace('/v1', '')}/health", timeout=2)
+            # Check if Parallax API is accessible by listing models
+            response = httpx.get(f"{self.base_url}/models", timeout=2)
             return response.status_code == 200
         except:
             return False
@@ -241,6 +242,11 @@ Respond with JSON only:
                 temperature=0.3,
                 max_tokens=200
             )
+
+            # Check if response has content
+            if not response.choices or not response.choices[0].message.content:
+                log_event("PARALLAX", "Empty response from model", "WARN")
+                return self._mock_reasoning(vision_output)
 
             result = json.loads(response.choices[0].message.content)
             return result
