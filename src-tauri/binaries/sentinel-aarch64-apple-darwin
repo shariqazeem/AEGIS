@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Get the directory where the script is located
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# The actual python script is in ../../../backend/vision_sentinel.py relative to src-tauri/binaries
+# But when bundled, it might be different. For dev mode:
+PYTHON_SCRIPT="$DIR/../../../backend/vision_sentinel.py"
+
+echo "Starting AEGIS Sentinel..."
+echo "Target Script: $PYTHON_SCRIPT"
+
+if [ -f "$PYTHON_SCRIPT" ]; then
+    # Run the python script
+    # Ensure python3 is available
+    python3 -u "$PYTHON_SCRIPT"
+else
+    echo "ERROR: Python script not found at $PYTHON_SCRIPT"
+    # Fallback mock mode
+    while true; do
+        echo "THREAT DETECTED: Mock Event $(date)"
+        sleep 2
+        echo "SAFE: System Normal"
+        sleep 3
+    done
+fi
