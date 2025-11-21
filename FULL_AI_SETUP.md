@@ -13,10 +13,10 @@ AEGIS uses a **two-model pipeline**:
    - Runs on Apple Neural Engine (MPS)
    - ~1.8GB model size
 
-2. **Reasoning Model (Llama 3.1)**: Served by Parallax
+2. **Reasoning Model (Qwen3-0.6B)**: Served by Parallax
    - Analyzes vision output for threats
    - Makes decisions and recommendations
-   - ~8GB model size (FP8 quantized)
+   - ~600MB model size (perfect for Macs!)
 
 **Important**: Moondream is NOT available in Parallax, so we load it directly in Python.
 
@@ -31,9 +31,9 @@ Open: **http://localhost:3001**
 **Configuration:**
 - Node Number: **1**
 - Same local network: **Yes**
-- Model: Select **`nvidia/Llama-3.1-8B-Instruct-FP8`**
+- Model: Select **`Qwen/Qwen3-0.6B`**
 
-Click **Continue** and wait for model download (~8GB, takes 10-20 min)
+Click **Continue** and wait for model download (~600MB, takes 2-5 min)
 
 ### Step 2: Join Worker Node
 
@@ -110,7 +110,7 @@ PARALLAX_API_KEY = "not-needed-for-local"
 
 # Models
 VISION_MODEL = "moondream"  # Change from "mock"
-REASONING_MODEL = "nvidia/Llama-3.1-8B-Instruct-FP8"  # Match Parallax model
+REASONING_MODEL = "Qwen/Qwen3-0.6B"  # Match Parallax model (lightweight for Macs!)
 ```
 
 **Save the file.**
@@ -264,19 +264,21 @@ After first load, it's cached and loads in ~10 seconds.
 ### M1/M2 MacBook Air (8GB RAM)
 | Metric | Value |
 |--------|-------|
+| Qwen3-0.6B model download | ~600MB (~2-5 min) |
 | Moondream loading (first time) | 10-30 seconds |
 | Vision inference | 1.5-2.5 sec/frame |
-| Llama reasoning | 1-2 seconds |
-| Total RAM usage | 6-7 GB |
+| Qwen reasoning | 0.5-1 second (fast!) |
+| Total RAM usage | 4-5 GB |
 | Runs 100% offline? | ✅ YES! |
 
 ### M1/M2 MacBook Pro (16GB RAM)
 | Metric | Value |
 |--------|-------|
+| Qwen3-0.6B model download | ~600MB (~2-5 min) |
 | Moondream loading | 5-10 seconds |
 | Vision inference | 1-2 sec/frame |
-| Llama reasoning | 0.5-1 second |
-| Total RAM usage | 8-10 GB |
+| Qwen reasoning | 0.3-0.5 second (very fast!) |
+| Total RAM usage | 5-6 GB |
 | Runs 100% offline? | ✅ YES! |
 
 ---
@@ -290,13 +292,13 @@ Once everything works, record a 2-3 minute demo showing:
 3. **Threat detection** - Show fire → AI detects it
 4. **Privacy feature** - Click "Privacy Vault" → "PURGE MEMORY"
 5. **OFFLINE MODE** - Unplug ethernet, still works!
-6. **Tech stack** - Mention Moondream, Parallax, Llama 3.1, MLX, Apple Silicon
+6. **Tech stack** - Mention Moondream, Parallax, Qwen3-0.6B, MLX, Apple Silicon
 
 ---
 
 ## Competition Submission Checklist
 
-- [ ] Parallax running with Llama 3.1-8B
+- [ ] Parallax running with Qwen3-0.6B (lightweight model for Macs)
 - [ ] Moondream loaded on MPS (Apple Neural Engine)
 - [ ] Camera feed working in Tauri app
 - [ ] Real-time threat detection tested

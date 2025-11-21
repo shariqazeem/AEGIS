@@ -48,7 +48,7 @@ class Config:
 
     # Models
     VISION_MODEL = "mock"  # Options: "moondream" (real AI), "mock" (testing)
-    REASONING_MODEL = "nvidia/Llama-3.1-8B-Instruct-FP8"  # Via Parallax (must match model in Parallax UI)
+    REASONING_MODEL = "Qwen/Qwen3-0.6B"  # Via Parallax (must match model in Parallax UI) - Lightweight model for Macs
 
     # Modes
     MODE = "HOME"  # HOME or INDUSTRIAL
