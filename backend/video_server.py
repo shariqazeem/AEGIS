@@ -33,32 +33,61 @@ FPS_TARGET = 30
 JPEG_QUALITY = 85
 
 def find_camera():
-    """Find available camera by trying multiple indices"""
+    """Find available camera by trying multiple indices and verifying it's a real camera"""
     logger.info("Searching for available cameras...")
 
-    # Try indices 0-5 (covers most setups)
-    for index in range(6):
-        logger.info(f"Trying camera index {index}...")
-        camera = cv2.VideoCapture(index)
+    # On macOS, try using AVFoundation backend explicitly for built-in camera
+    # CAP_AVFOUNDATION = 1800
+    backends_to_try = [
+        cv2.CAP_AVFOUNDATION if hasattr(cv2, 'CAP_AVFOUNDATION') else 0,  # macOS AVFoundation
+        cv2.CAP_ANY  # Auto-detect
+    ]
 
-        if camera.isOpened():
-            # Test if we can actually read a frame
-            ret, frame = camera.read()
-            if ret and frame is not None:
-                logger.success(f"✓ Found working camera at index {index}")
-                logger.info(f"  Resolution: {frame.shape[1]}x{frame.shape[0]}")
+    for backend in backends_to_try:
+        logger.info(f"Trying backend: {backend}")
+
+        # Try indices 0-3 (usually built-in camera is 0 or 1)
+        for index in range(4):
+            logger.info(f"  Trying camera index {index}...")
+
+            if backend == cv2.CAP_ANY:
+                camera = cv2.VideoCapture(index)
+            else:
+                camera = cv2.VideoCapture(index, backend)
+
+            if camera.isOpened():
+                # Test if we can actually read a frame
+                ret, frame = camera.read()
+                if ret and frame is not None:
+                    # Check if it's a real camera (not screen capture)
+                    # Real cameras typically have certain resolutions
+                    height, width = frame.shape[:2]
+
+                    # Skip if resolution is too large (likely screen capture)
+                    # MacBook cameras are usually 720p (1280x720) or 1080p (1920x1080)
+                    if width > 1920 or height > 1080:
+                        logger.info(f"  Skipping index {index}: Resolution too high ({width}x{height}) - likely screen capture")
+                        camera.release()
+                        continue
+
+                    # Check camera backend name (on macOS, built-in camera uses AVFoundation)
+                    backend_name = camera.getBackendName() if hasattr(camera, 'getBackendName') else "unknown"
+
+                    logger.success(f"✓ Found working camera at index {index}")
+                    logger.info(f"  Resolution: {width}x{height}")
+                    logger.info(f"  Backend: {backend_name}")
+                    camera.release()
+                    return index, backend
                 camera.release()
-                return index
-            camera.release()
 
-    logger.warning("No camera found on indices 0-5")
-    return None
+    logger.warning("No suitable camera found")
+    return None, cv2.CAP_ANY
 
 def generate_frames():
     """Generate MJPEG stream"""
 
     # Find camera
-    camera_index = find_camera()
+    camera_index, backend = find_camera()
 
     if camera_index is None:
         logger.error("No camera detected!")
@@ -81,14 +110,17 @@ def generate_frames():
             time.sleep(0.1)
         return
 
-    # Open camera
-    camera = cv2.VideoCapture(camera_index)
+    # Open camera with the detected backend
+    if backend == cv2.CAP_ANY:
+        camera = cv2.VideoCapture(camera_index)
+    else:
+        camera = cv2.VideoCapture(camera_index, backend)
 
     if not camera.isOpened():
         logger.error(f"Failed to open camera at index {camera_index}")
         return
 
-    logger.info(f"✓ Camera streaming on index {camera_index}")
+    logger.info(f"✓ Camera streaming on index {camera_index} (backend: {backend})")
     frame_count = 0
 
     try:

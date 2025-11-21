@@ -308,12 +308,20 @@ class AegisSentinel:
         else:
             log_event("PARALLAX", "⚠ Parallax not detected, using standalone mode", "WARN")
 
-        # Open camera
-        self.camera = cv2.VideoCapture(config.CAMERA_INDEX)
-        if not self.camera.isOpened():
-            log_event("CAMERA", "⚠ No camera detected, running in test mode", "WARN")
-        else:
-            log_event("CAMERA", "✓ Camera initialized", "SUCCESS")
+        # Open camera (try AVFoundation backend on macOS for built-in camera)
+        try:
+            if hasattr(cv2, 'CAP_AVFOUNDATION'):
+                self.camera = cv2.VideoCapture(config.CAMERA_INDEX, cv2.CAP_AVFOUNDATION)
+            else:
+                self.camera = cv2.VideoCapture(config.CAMERA_INDEX)
+
+            if not self.camera.isOpened():
+                log_event("CAMERA", "⚠ No camera detected, running in test mode", "WARN")
+            else:
+                log_event("CAMERA", "✓ Camera initialized", "SUCCESS")
+        except Exception as e:
+            log_event("CAMERA", f"Camera initialization failed: {e}", "WARN")
+            self.camera = None
 
         log_event("AEGIS", "🟢 System READY", "SUCCESS")
         print("SAFE", flush=True)  # Initial state
