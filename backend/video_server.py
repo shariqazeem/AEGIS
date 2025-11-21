@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+import sys
 
 app = FastAPI(title="AEGIS Video Server")
 
@@ -27,24 +28,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global configuration
-CAMERA_INDEX = 0
+# Global configuration - try multiple camera indices
 FPS_TARGET = 30
 JPEG_QUALITY = 85
 
+def find_camera():
+    """Find available camera by trying multiple indices"""
+    logger.info("Searching for available cameras...")
+
+    # Try indices 0-5 (covers most setups)
+    for index in range(6):
+        logger.info(f"Trying camera index {index}...")
+        camera = cv2.VideoCapture(index)
+
+        if camera.isOpened():
+            # Test if we can actually read a frame
+            ret, frame = camera.read()
+            if ret and frame is not None:
+                logger.success(f"✓ Found working camera at index {index}")
+                logger.info(f"  Resolution: {frame.shape[1]}x{frame.shape[0]}")
+                camera.release()
+                return index
+            camera.release()
+
+    logger.warning("No camera found on indices 0-5")
+    return None
+
 def generate_frames():
     """Generate MJPEG stream"""
-    camera = cv2.VideoCapture(CAMERA_INDEX)
 
-    if not camera.isOpened():
-        logger.error("Failed to open camera")
-        # Generate a black frame with error message
-        blank = cv2.imread('/dev/null', cv2.IMREAD_COLOR)  # This will fail
-        if blank is None:
-            import numpy as np
-            blank = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(blank, "NO CAMERA DETECTED", (50, 240),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    # Find camera
+    camera_index = find_camera()
+
+    if camera_index is None:
+        logger.error("No camera detected!")
+        # Generate error frame
+        import numpy as np
+        blank = np.zeros((480, 640, 3), dtype=np.uint8)
+        cv2.putText(blank, "NO CAMERA DETECTED", (120, 200),
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        cv2.putText(blank, "Check System Preferences", (120, 250),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
+        cv2.putText(blank, "Privacy -> Camera", (180, 290),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
 
         ret, buffer = cv2.imencode('.jpg', blank, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
         frame_bytes = buffer.tobytes()
@@ -55,7 +81,14 @@ def generate_frames():
             time.sleep(0.1)
         return
 
-    logger.info(f"Camera opened successfully (Index: {CAMERA_INDEX})")
+    # Open camera
+    camera = cv2.VideoCapture(camera_index)
+
+    if not camera.isOpened():
+        logger.error(f"Failed to open camera at index {camera_index}")
+        return
+
+    logger.info(f"✓ Camera streaming on index {camera_index}")
     frame_count = 0
 
     try:
@@ -67,14 +100,14 @@ def generate_frames():
 
             frame_count += 1
 
-            # Add AEGIS overlay
+            # Add AEGIS overlay with green color (to indicate active)
             cv2.putText(
                 frame,
                 "AEGIS SENTINEL",
                 (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 255, 0),
+                0.8,
+                (0, 255, 0),  # Green color
                 2
             )
 
@@ -82,7 +115,19 @@ def generate_frames():
             cv2.putText(
                 frame,
                 f"Frame: {frame_count}",
-                (frame.shape[1] - 150, 30),
+                (frame.shape[1] - 180, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2
+            )
+
+            # Add timestamp
+            timestamp = time.strftime("%H:%M:%S")
+            cv2.putText(
+                frame,
+                timestamp,
+                (10, frame.shape[0] - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
                 (0, 255, 0),
@@ -121,7 +166,12 @@ def root():
 @app.get("/health")
 def health():
     """Health check endpoint"""
-    return {"status": "healthy"}
+    camera_index = find_camera()
+    return {
+        "status": "healthy",
+        "camera_available": camera_index is not None,
+        "camera_index": camera_index
+    }
 
 @app.get("/video_feed")
 def video_feed():
@@ -134,4 +184,14 @@ def video_feed():
 if __name__ == "__main__":
     import uvicorn
     logger.info("🎥 Starting AEGIS Video Server on http://0.0.0.0:8000")
+    logger.info("=" * 50)
+
+    # Test camera on startup
+    camera_index = find_camera()
+    if camera_index is not None:
+        logger.success(f"Camera ready on index {camera_index}")
+    else:
+        logger.warning("No camera detected - check System Preferences → Privacy → Camera")
+
+    logger.info("=" * 50)
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
