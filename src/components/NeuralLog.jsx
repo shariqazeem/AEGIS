@@ -3,27 +3,27 @@ import { useSystemStore } from '../store/useSystemStore';
 
 // Log level colors and icons
 const levelConfig = {
-    CRITICAL: { color: 'text-red-400', bg: 'bg-red-500/20', icon: '!' },
-    ERROR: { color: 'text-red-400', bg: 'bg-red-500/10', icon: '!' },
-    WARN: { color: 'text-yellow-400', bg: 'bg-yellow-500/10', icon: '!' },
-    SUCCESS: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', icon: '>' },
-    INFO: { color: 'text-blue-400', bg: 'bg-transparent', icon: '>' },
-    DEBUG: { color: 'text-slate-500', bg: 'bg-transparent', icon: '.' },
+    CRITICAL: { color: 'text-neon-red', bg: 'bg-neon-red/10', icon: '⚠' },
+    ERROR: { color: 'text-neon-red', bg: 'bg-neon-red/5', icon: '✖' },
+    WARN: { color: 'text-amber-400', bg: 'bg-amber-500/10', icon: '!' },
+    SUCCESS: { color: 'text-neon-green', bg: 'bg-neon-green/10', icon: '✓' },
+    INFO: { color: 'text-neon-blue', bg: 'bg-transparent', icon: 'ℹ' },
+    DEBUG: { color: 'text-slate-500', bg: 'bg-transparent', icon: '•' },
 };
 
 // Type badge colors
 const typeColors = {
-    THREAT: 'text-red-500 bg-red-500/20',
-    SCAN: 'text-emerald-400 bg-emerald-500/20',
-    PARALLAX: 'text-purple-400 bg-purple-500/20',
-    AEGIS: 'text-cyan-400 bg-cyan-500/20',
-    CAMERA: 'text-blue-400 bg-blue-500/20',
-    LLM: 'text-orange-400 bg-orange-500/20',
-    VISION: 'text-indigo-400 bg-indigo-500/20',
-    API: 'text-teal-400 bg-teal-500/20',
-    ACTION: 'text-amber-400 bg-amber-500/20',
-    TREND: 'text-pink-400 bg-pink-500/20',
-    SUMMARY: 'text-violet-400 bg-violet-500/20',
+    THREAT: 'text-neon-red bg-neon-red/20 border-neon-red/30',
+    SCAN: 'text-neon-green bg-neon-green/20 border-neon-green/30',
+    PARALLAX: 'text-neon-purple bg-neon-purple/20 border-neon-purple/30',
+    AEGIS: 'text-neon-blue bg-neon-blue/20 border-neon-blue/30',
+    CAMERA: 'text-cyan-400 bg-cyan-500/20 border-cyan-500/30',
+    LLM: 'text-orange-400 bg-orange-500/20 border-orange-500/30',
+    VISION: 'text-indigo-400 bg-indigo-500/20 border-indigo-500/30',
+    API: 'text-teal-400 bg-teal-500/20 border-teal-500/30',
+    ACTION: 'text-amber-400 bg-amber-500/20 border-amber-500/30',
+    TREND: 'text-pink-400 bg-pink-500/20 border-pink-500/30',
+    SUMMARY: 'text-violet-400 bg-violet-500/20 border-violet-500/30',
 };
 
 const NeuralLog = () => {
@@ -51,52 +51,44 @@ const NeuralLog = () => {
     };
 
     const getTypeColor = (type) => {
-        return typeColors[type] || 'text-slate-400 bg-slate-500/20';
+        return typeColors[type] || 'text-slate-400 bg-slate-500/20 border-slate-500/30';
     };
 
     // Filter out DEBUG logs for cleaner display (optional)
     const visibleLogs = logs.filter(log => log.level !== 'DEBUG');
 
     return (
-        <div className="flex flex-col h-full bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden backdrop-blur-sm">
+        <div className="flex flex-col h-full bg-obsidian/50 backdrop-blur-sm">
             {/* Header with stats */}
-            <div className="px-4 py-2 bg-slate-900/80 border-b border-slate-800">
-                <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-bold text-slate-400 tracking-widest uppercase">
-                        Neural Inference Log
-                    </span>
-                    <div className="flex items-center gap-2">
-                        {/* Connection indicator */}
-                        <div className={`w-2 h-2 rounded-full ${systemInfo.parallaxConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`} />
-                        <span className="text-[9px] text-slate-500">
-                            {systemInfo.parallaxConnected ? 'LIVE' : 'OFFLINE'}
-                        </span>
+            <div className="px-4 py-2 bg-black/40 border-b border-white/10 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                    <div className="text-[10px] font-bold text-slate-400 tracking-widest uppercase font-mono">
+                        NEURAL INFERENCE STREAM
+                    </div>
+                    <div className="flex gap-3 text-[9px] font-mono text-slate-500">
+                        <span>SCANS: <span className="text-neon-blue">{systemInfo.scanCount || 0}</span></span>
+                        <span>THREATS: <span className={systemInfo.threatCount > 0 ? 'text-neon-red animate-pulse' : 'text-slate-500'}>{systemInfo.threatCount || 0}</span></span>
                     </div>
                 </div>
-
-                {/* Stats bar */}
-                <div className="flex gap-4 text-[9px] text-slate-500">
-                    <span>Scans: <span className="text-slate-300">{systemInfo.scanCount || 0}</span></span>
-                    <span>Threats: <span className={systemInfo.threatCount > 0 ? 'text-red-400' : 'text-slate-300'}>{systemInfo.threatCount || 0}</span></span>
-                    {systemInfo.model && (
-                        <span className="text-purple-400 truncate max-w-[100px]" title={systemInfo.model}>
-                            {systemInfo.model.split('/').pop()}
-                        </span>
-                    )}
+                <div className="flex items-center gap-2">
+                    <div className={`w-1.5 h-1.5 rounded-full ${systemInfo.parallaxConnected ? 'bg-neon-green shadow-[0_0_5px_#0aff68] animate-pulse' : 'bg-slate-600'}`} />
+                    <span className="text-[9px] font-mono text-slate-500">
+                        {systemInfo.parallaxConnected ? 'LINK_ESTABLISHED' : 'OFFLINE'}
+                    </span>
                 </div>
             </div>
 
             {/* Log entries */}
             <div
                 ref={scrollRef}
-                className="flex-1 p-3 overflow-y-auto font-mono text-[11px] space-y-1 scrollbar-hide"
+                className="flex-1 p-3 overflow-y-auto font-mono text-[11px] space-y-1 scrollbar-hide relative"
             >
                 {visibleLogs.length === 0 && (
-                    <div className="text-slate-600 italic text-center py-8">
-                        <div className="text-2xl mb-2 opacity-50">AEGIS</div>
-                        <div>Waiting for neural stream...</div>
-                        <div className="text-[10px] mt-2 text-slate-700">
-                            Start backend: python backend/vision_sentinel.py
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-600 opacity-50">
+                        <div className="text-4xl mb-2 font-bold tracking-widest text-white/10">AEGIS</div>
+                        <div className="text-xs tracking-wider">WAITING FOR NEURAL STREAM...</div>
+                        <div className="text-[9px] mt-4 font-mono bg-white/5 px-2 py-1 rounded">
+                            python backend/vision_sentinel.py
                         </div>
                     </div>
                 )}
@@ -110,26 +102,25 @@ const NeuralLog = () => {
                         <div
                             key={i}
                             className={`
-                                flex items-start gap-2 py-1 px-2 rounded transition-all duration-200
-                                ${config.bg}
-                                ${isThreat ? 'border-l-2 border-red-500 animate-pulse' : ''}
-                                hover:bg-slate-800/50
+                                flex items-start gap-3 py-1.5 px-2 rounded border border-transparent transition-all duration-200
+                                ${isThreat ? 'bg-neon-red/5 border-neon-red/20 shadow-[0_0_10px_rgba(255,0,60,0.1)]' : 'hover:bg-white/5'}
                             `}
                         >
                             {/* Timestamp */}
-                            <span className="text-slate-600 shrink-0 w-[52px]">
+                            <span className="text-slate-500 shrink-0 w-[52px] font-mono opacity-70">
                                 {getTime(log)}
                             </span>
 
                             {/* Type badge */}
                             {log.type && log.type !== 'SYSTEM' && (
-                                <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-medium ${typeColor}`}>
+                                <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeColor}`}>
                                     {log.type}
                                 </span>
                             )}
 
                             {/* Message */}
-                            <span className={`flex-1 ${config.color} break-words`}>
+                            <span className={`flex-1 ${config.color} break-words leading-relaxed`}>
+                                {isThreat && <span className="mr-2 animate-pulse">⚠</span>}
                                 {log.message}
                             </span>
                         </div>
@@ -139,9 +130,9 @@ const NeuralLog = () => {
 
             {/* Footer with last description */}
             {systemInfo.lastDescription && (
-                <div className="px-3 py-2 bg-slate-900/60 border-t border-slate-800 text-[10px] text-slate-500 truncate">
-                    <span className="text-slate-600">Last: </span>
-                    {systemInfo.lastDescription.slice(0, 80)}...
+                <div className="px-3 py-2 bg-black/60 border-t border-white/10 text-[10px] font-mono truncate flex items-center gap-2">
+                    <span className="text-neon-blue shrink-0">LAST_INFERENCE:</span>
+                    <span className="text-slate-400 truncate">{systemInfo.lastDescription}</span>
                 </div>
             )}
         </div>

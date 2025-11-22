@@ -17,49 +17,77 @@ const chartdata = [
 
 const Dashboard = () => {
     useEffect(() => {
-        // Start the brain when dashboard mounts
         startSentinel();
         return () => {
-            // Optional: Stop when leaving, or keep running in background
             // stopSentinel(); 
         };
     }, []);
 
     return (
-        <div className="grid grid-cols-12 gap-6 h-[calc(100vh-4rem)]">
+        <div className="grid grid-cols-12 gap-4 h-full max-h-full overflow-hidden">
             {/* Main Video Feed Area */}
-            <div className="col-span-8 flex flex-col gap-6">
-                <div className="flex-1 relative">
-                    <VideoFeed className="w-full h-full" />
+            <div className="col-span-12 lg:col-span-8 flex flex-col gap-4 h-full overflow-hidden">
+                <div className="flex-1 relative rounded-xl overflow-hidden border border-neon-blue/20 shadow-[0_0_30px_rgba(0,243,255,0.1)] bg-black/50 min-h-0">
+                    {/* Corner Accents */}
+                    <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-neon-blue z-20" />
+                    <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-neon-blue z-20" />
+                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-neon-blue z-20" />
+                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-neon-blue z-20" />
+
+                    <VideoFeed className="w-full h-full object-contain opacity-90" />
                 </div>
 
                 {/* System Load Chart */}
-                <Card className="bg-slate-900/50 border-slate-800 ring-0">
-                    <Title className="text-slate-200">System Load</Title>
-                    <Text className="text-slate-500">Real-time resource consumption</Text>
+                <div className="glass-panel p-4 rounded-xl border border-white/5 relative overflow-hidden group shrink-0 h-48">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-neon-blue to-transparent opacity-20 group-hover:opacity-50 transition-opacity" />
+                    <div className="flex items-center justify-between mb-2">
+                        <div>
+                            <h3 className="text-neon-blue font-mono tracking-wider text-sm">SYSTEM METRICS</h3>
+                            <p className="text-slate-500 text-[10px] font-mono">REAL-TIME RESOURCE CONSUMPTION</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-neon-blue animate-pulse" />
+                            <span className="text-[9px] text-neon-blue font-mono">LIVE</span>
+                        </div>
+                    </div>
                     <AreaChart
-                        className="h-32 mt-4"
+                        className="h-28"
                         data={chartdata}
                         index="date"
                         categories={["CPU", "RAM"]}
-                        colors={["blue", "emerald"]}
+                        colors={["cyan", "emerald"]}
                         showXAxis={false}
                         showYAxis={false}
                         showLegend={true}
                         showGridLines={false}
                         showAnimation={true}
+                        curveType="monotone"
                     />
-                </Card>
+                </div>
             </div>
 
             {/* Sidebar Info Area */}
-            <div className="col-span-4 flex flex-col gap-6">
+            <div className="col-span-12 lg:col-span-4 flex flex-col gap-4 h-full overflow-hidden">
                 {/* Threat Status */}
-                <ThreatBadge />
+                <div className="glass-panel p-1 rounded-xl shrink-0">
+                    <ThreatBadge />
+                </div>
 
                 {/* Neural Log */}
-                <div className="flex-1 min-h-0">
-                    <NeuralLog />
+                <div className="flex-1 min-h-0 glass-panel rounded-xl overflow-hidden flex flex-col relative">
+                    <div className="p-3 border-b border-white/10 bg-white/5 flex justify-between items-center shrink-0">
+                        <span className="font-mono text-xs text-neon-blue tracking-widest">NEURAL_LOG</span>
+                        <div className="flex gap-1">
+                            <div className="w-1.5 h-1.5 rounded-full bg-slate-600" />
+                            <div className="w-1.5 h-1.5 rounded-full bg-slate-600" />
+                            <div className="w-1.5 h-1.5 rounded-full bg-slate-600" />
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-hidden relative">
+                        <NeuralLog />
+                        {/* Scanline for log */}
+                        <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.2)_50%)] bg-[length:100%_4px] pointer-events-none opacity-50" />
+                    </div>
                 </div>
             </div>
         </div>

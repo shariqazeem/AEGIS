@@ -3,9 +3,9 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Rajdhani', sans-serif;
   line-height: 1.5;
-  font-weight: 400;
+  font-weight: 500;
   color-scheme: dark;
 }
 
@@ -13,5 +13,63 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  @apply bg-slate-950 text-white;
+  @apply bg-void text-white overflow-hidden;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-obsidian;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-700 rounded-full hover:bg-neon-blue transition-colors;
+}
+
+/* Animations */
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+.animate-scanline {
+  animation: scanline 8s linear infinite;
+}
+
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 10px rgba(0, 243, 255, 0.2);
+  }
+
+  50% {
+    box-shadow: 0 0 20px rgba(0, 243, 255, 0.6);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s infinite;
+}
+
+/* Glass Utilities */
+.glass-panel {
+  @apply bg-obsidian/80 backdrop-blur-md border border-white/10 shadow-glass;
+}
+
+.neon-border {
+  @apply border border-neon-blue/30 shadow-[0_0_10px_rgba(0, 243, 255, 0.1)];
+}
+
+.text-glow {
+  text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
 }

@@ -7,103 +7,114 @@ const VideoFeed = ({ className }) => {
     const VIDEO_SERVER_URL = "http://localhost:8000/video_feed";
 
     useEffect(() => {
-        // Check if video server is available
         const checkConnection = async () => {
             try {
                 const res = await fetch("http://localhost:8000/health");
                 if (res.ok) {
                     const data = await res.json();
-                    console.log("Video server health:", data);
                     if (data.camera_available) {
                         setIsConnected(true);
                         setError(null);
                     } else {
-                        setError("Camera not available. Check System Preferences → Privacy → Camera");
+                        setError("Camera not available");
                         setIsConnected(false);
                     }
                 }
             } catch (err) {
-                console.error("Video server connection error:", err);
-                setError("Video server not running. Start: python backend/video_server.py");
+                setError("Video server offline");
                 setIsConnected(false);
             }
         };
 
         checkConnection();
-
-        // Re-check every 5 seconds
         const interval = setInterval(checkConnection, 5000);
         return () => clearInterval(interval);
     }, []);
 
     return (
-        <div className={clsx("relative rounded-xl overflow-hidden bg-black border border-slate-800 shadow-2xl", className)}>
+        <div className={clsx("relative rounded-xl overflow-hidden bg-black border border-white/10 shadow-2xl group", className)}>
+            {/* Scanline Effect */}
+            <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.25)_50%)] bg-[length:100%_4px] pointer-events-none z-10 opacity-50" />
+
+            {/* Vignette */}
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_50%,rgba(0,0,0,0.6)_100%)] pointer-events-none z-10" />
+
             {/* Real video stream or placeholder */}
             {isConnected ? (
                 <img
                     src={VIDEO_SERVER_URL}
                     alt="Live Feed"
-                    className="absolute inset-0 w-full h-full object-cover"
+                    className="absolute inset-0 w-full h-full object-contain opacity-80 mix-blend-screen"
                     onError={() => setIsConnected(false)}
                 />
             ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800">
-                    <div className="text-center p-8">
-                        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-700 flex items-center justify-center">
-                            <svg className="w-8 h-8 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
+                <div className="absolute inset-0 flex items-center justify-center bg-obsidian">
+                    <div className="text-center p-8 relative z-20">
+                        <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-white/5 flex items-center justify-center border border-white/10 animate-pulse">
+                            <div className="w-16 h-16 rounded-full border border-neon-red/30 flex items-center justify-center">
+                                <div className="w-2 h-2 bg-neon-red rounded-full shadow-[0_0_10px_#ff003c]" />
+                            </div>
                         </div>
-                        <p className="text-slate-400 font-semibold mb-2">No Video Feed</p>
-                        <p className="text-slate-600 text-sm max-w-xs">
-                            {error || "Start the video server to see live feed"}
+                        <p className="text-neon-red font-mono tracking-widest mb-2 text-sm">SIGNAL LOST</p>
+                        <p className="text-slate-500 text-xs font-mono max-w-xs">
+                            {error || "ESTABLISHING CONNECTION..."}
                         </p>
-                        <code className="block mt-3 text-xs text-emerald-400 bg-slate-900/50 px-3 py-2 rounded border border-slate-700">
-                            python backend/video_server.py
-                        </code>
                     </div>
                 </div>
             )}
 
-            {/* Overlay UI */}
-            <div className="absolute top-4 left-4 flex items-center gap-2 z-10">
-                <div className={clsx(
-                    "flex items-center gap-1.5 px-2 py-1 border rounded backdrop-blur-md",
-                    isConnected
-                        ? "bg-red-500/20 border-red-500/30"
-                        : "bg-slate-700/20 border-slate-600/30"
-                )}>
-                    <div className={clsx(
-                        "w-2 h-2 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)]",
-                        isConnected
-                            ? "bg-red-500 animate-pulse"
-                            : "bg-slate-500"
-                    )} />
-                    <span className={clsx(
-                        "text-[10px] font-bold tracking-widest",
-                        isConnected ? "text-red-400" : "text-slate-400"
-                    )}>
-                        {isConnected ? "REC" : "OFF"}
-                    </span>
+            {/* HUD Overlay */}
+            <div className="absolute inset-0 z-30 pointer-events-none p-6 flex flex-col justify-between">
+                {/* Top Bar */}
+                <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-4">
+                        <div className={clsx(
+                            "flex items-center gap-2 px-3 py-1 border rounded backdrop-blur-md transition-colors duration-300",
+                            isConnected
+                                ? "bg-neon-red/10 border-neon-red/30 text-neon-red"
+                                : "bg-slate-800/50 border-slate-700 text-slate-500"
+                        )}>
+                            <div className={clsx(
+                                "w-2 h-2 rounded-full shadow-[0_0_8px_currentColor]",
+                                isConnected ? "bg-neon-red animate-pulse" : "bg-slate-500"
+                            )} />
+                            <span className="text-[10px] font-bold tracking-widest">
+                                {isConnected ? "REC" : "OFFLINE"}
+                            </span>
+                        </div>
+                        <div className="px-3 py-1 bg-black/40 border border-white/10 rounded backdrop-blur-md">
+                            <span className="text-[10px] font-mono text-neon-blue tracking-widest">CAM-01 // MAIN_FEED</span>
+                        </div>
+                    </div>
+                    <div className="text-right">
+                        <div className="text-[10px] font-mono text-neon-blue/70 tracking-widest">ISO 800</div>
+                        <div className="text-[10px] font-mono text-neon-blue/70 tracking-widest">F/2.8</div>
+                    </div>
                 </div>
-                <div className="px-2 py-1 bg-slate-900/50 border border-slate-700/50 rounded backdrop-blur-md">
-                    <span className="text-[10px] font-mono text-slate-300">CAM-01 // MAIN_HALL</span>
+
+                {/* Center Crosshair */}
+                {isConnected && (
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 border border-neon-blue/30 rounded-full flex items-center justify-center opacity-50">
+                        <div className="w-1 h-1 bg-neon-blue rounded-full shadow-[0_0_5px_#00f3ff]" />
+                        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-2 w-0.5 h-2 bg-neon-blue/50" />
+                        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-2 w-0.5 h-2 bg-neon-blue/50" />
+                        <div className="absolute left-0 top-1/2 -translate-x-2 -translate-y-1/2 w-2 h-0.5 bg-neon-blue/50" />
+                        <div className="absolute right-0 top-1/2 translate-x-2 -translate-y-1/2 w-2 h-0.5 bg-neon-blue/50" />
+                    </div>
+                )}
+
+                {/* Bottom Bar */}
+                <div className="flex justify-between items-end">
+                    <div className="flex gap-1">
+                        {[...Array(5)].map((_, i) => (
+                            <div key={i} className="w-1 h-3 bg-neon-blue/30 rounded-sm" />
+                        ))}
+                    </div>
+                    <div className="text-[10px] font-mono text-neon-blue/50 tracking-[0.2em]">
+                        VISION SENTINEL V3.0
+                    </div>
                 </div>
             </div>
-
-            {/* Crosshairs / HUD Elements - Only show when connected */}
-            {isConnected && (
-                <div className="absolute inset-4 border border-white/10 rounded-lg pointer-events-none">
-                    <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-white/30" />
-                    <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-white/30" />
-                    <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-white/30" />
-                    <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-white/30" />
-
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 border border-white/20 rounded-full flex items-center justify-center">
-                        <div className="w-1 h-1 bg-white/50 rounded-full" />
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
