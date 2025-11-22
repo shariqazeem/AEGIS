@@ -1580,22 +1580,34 @@ Be concise and professional. Highlight any patterns or critical events."""
         activity = "high motion" if motion > 20 else "some motion" if motion > 5 else "still"
         visibility = "very low (possibly blocked)" if edge_density < 0.008 and contrast < 25 else "reduced" if edge_density < 0.02 else "clear"
 
-        prompt = f"""You are AEGIS, an AI security system. Analyze these camera readings and determine if there's a threat.
+        # Check for ACTUAL threat indicators from YOLO
+        yolo_objects = features.get('yolo_objects', [])
+        has_weapon = any(obj in yolo_objects for obj in ['knife', 'scissors'])
+        has_fire_colors = red_pct > 25 and orange_pct > 15 and motion > 10
 
-SENSOR DATA:
-- Light: {light_level} (brightness: {brightness:.0f}/255)
-- Motion: {activity} (score: {motion:.1f})
-- Visibility: {visibility} (edges: {edge_density:.4f}, contrast: {contrast:.0f})
-- People: {faces} detected{f', {faces_lower} in lower frame' if faces_lower > 0 else ''}
+        prompt = f"""Analyze this home security camera scene. Most scenes are NORMAL.
+
+WHAT IS NORMAL (NOT threats):
+- People visible = normal (residents live here)
+- Cell phones, laptops, chairs = normal household items
+- Motion from people walking = normal
+- Dark rooms = normal (lights off)
+- Dim lighting = normal
+
+ONLY flag as threat if:
+- FIRE: Actual flames/smoke visible (not just red colors)
+- WEAPON: Knife/gun being held threateningly
+- FALLEN: Person collapsed on ground, not moving
+- BLOCKED: Camera completely covered (pure black, no edges)
+
+Current scene:
 - Objects: {features.get('yolo_summary', 'None')}
-- Red color: {red_pct:.1f}%, Orange: {orange_pct:.1f}%
+- Light: {light_level} | Motion: {activity}
+- People: {faces} | Visibility: {visibility}
+- Weapon detected: {has_weapon} | Fire colors: {has_fire_colors}
 
-SCENE: {description[:200]}
-
-Analyze for threats: fire, camera tampering, person fallen, smoke, intruder.
-
-Respond with ONLY valid JSON:
-{{"threat": true/false, "type": "threat type or normal", "severity": "critical/high/medium/low", "confidence": 0.0-1.0, "reasoning": "brief explanation"}}"""
+Reply ONLY with JSON:
+{{"threat": false, "type": "normal", "severity": "low", "confidence": 0.95, "reasoning": "one sentence"}}"""
 
         try:
             start_time = time.time()
