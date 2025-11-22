@@ -1582,32 +1582,29 @@ Be concise and professional. Highlight any patterns or critical events."""
 
         # Check for ACTUAL threat indicators from YOLO
         yolo_objects = features.get('yolo_objects', [])
+        yolo_summary = features.get('yolo_summary', '')
         has_weapon = any(obj in yolo_objects for obj in ['knife', 'scissors'])
         has_fire_colors = red_pct > 25 and orange_pct > 15 and motion > 10
 
-        prompt = f"""Analyze this home security camera scene. Most scenes are NORMAL.
+        # Build natural scene context
+        scene_items = []
+        if faces > 0:
+            scene_items.append(f"{faces} person{'s' if faces > 1 else ''}")
+        for obj in ['cell phone', 'laptop', 'tv', 'chair', 'cup', 'bottle']:
+            if obj in yolo_objects:
+                scene_items.append(obj)
+        scene_context = ", ".join(scene_items) if scene_items else "empty room"
 
-WHAT IS NORMAL (NOT threats):
-- People visible = normal (residents live here)
-- Cell phones, laptops, chairs = normal household items
-- Motion from people walking = normal
-- Dark rooms = normal (lights off)
-- Dim lighting = normal
+        prompt = f"""Home security camera check. Describe the scene naturally.
 
-ONLY flag as threat if:
-- FIRE: Actual flames/smoke visible (not just red colors)
-- WEAPON: Knife/gun being held threateningly
-- FALLEN: Person collapsed on ground, not moving
-- BLOCKED: Camera completely covered (pure black, no edges)
+Detected: {scene_context}
+Lighting: {light_level} | Activity: {activity}
 
-Current scene:
-- Objects: {features.get('yolo_summary', 'None')}
-- Light: {light_level} | Motion: {activity}
-- People: {faces} | Visibility: {visibility}
-- Weapon detected: {has_weapon} | Fire colors: {has_fire_colors}
+Threat only if: flames, weapon held threateningly, person collapsed, camera blocked.
+People with phones/laptops = normal residents.
 
-Reply ONLY with JSON:
-{{"threat": false, "type": "normal", "severity": "low", "confidence": 0.95, "reasoning": "one sentence"}}"""
+JSON response:
+{{"threat": false, "type": "normal", "severity": "low", "confidence": 0.95, "reasoning": "Natural description like: Person relaxing with phone. Quiet evening scene."}}"""
 
         try:
             start_time = time.time()
