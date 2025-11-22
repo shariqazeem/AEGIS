@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import VideoFeed from '../components/VideoFeed';
 import ThreatBadge from '../components/ThreatBadge';
 import NeuralLog from '../components/NeuralLog';
@@ -7,6 +7,8 @@ import NetworkDiagram from '../components/NetworkDiagram';
 import { startSentinel, stopSentinel } from '../services/sentinel';
 
 const Dashboard = () => {
+    const [activeTab, setActiveTab] = useState('logs'); // 'logs' | 'cluster'
+
     useEffect(() => {
         startSentinel();
         return () => {
@@ -35,32 +37,51 @@ const Dashboard = () => {
             </div>
 
             {/* Sidebar Info Area */}
-            <div className="col-span-12 lg:col-span-4 flex flex-col gap-4 h-full overflow-hidden">
-                {/* Threat Status */}
+            <div className="col-span-12 lg:col-span-4 flex flex-col gap-3 h-full overflow-hidden">
+                {/* Threat Status - Compact */}
                 <div className="glass-panel p-1 rounded-xl shrink-0">
                     <ThreatBadge />
                 </div>
 
-                {/* Cluster Metrics - Parallax Showcase! */}
-                <div className="glass-panel p-3 rounded-xl shrink-0 overflow-auto max-h-[40%]">
-                    <ClusterMetrics />
+                {/* Tab Switcher */}
+                <div className="flex gap-1 shrink-0">
+                    <button
+                        onClick={() => setActiveTab('logs')}
+                        className={`flex-1 py-2 px-3 rounded-lg font-mono text-xs tracking-wider transition-all ${
+                            activeTab === 'logs'
+                                ? 'bg-neon-blue/20 text-neon-blue border border-neon-blue/30'
+                                : 'bg-white/5 text-slate-500 border border-white/10 hover:bg-white/10'
+                        }`}
+                    >
+                        NEURAL_LOG
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('cluster')}
+                        className={`flex-1 py-2 px-3 rounded-lg font-mono text-xs tracking-wider transition-all ${
+                            activeTab === 'cluster'
+                                ? 'bg-neon-purple/20 text-neon-purple border border-neon-purple/30'
+                                : 'bg-white/5 text-slate-500 border border-white/10 hover:bg-white/10'
+                        }`}
+                    >
+                        PARALLAX
+                    </button>
                 </div>
 
-                {/* Neural Log */}
+                {/* Content Area - Takes remaining space */}
                 <div className="flex-1 min-h-0 glass-panel rounded-xl overflow-hidden flex flex-col relative">
-                    <div className="p-3 border-b border-white/10 bg-white/5 flex justify-between items-center shrink-0">
-                        <span className="font-mono text-xs text-neon-blue tracking-widest">NEURAL_LOG</span>
-                        <div className="flex gap-1">
-                            <div className="w-1.5 h-1.5 rounded-full bg-slate-600" />
-                            <div className="w-1.5 h-1.5 rounded-full bg-slate-600" />
-                            <div className="w-1.5 h-1.5 rounded-full bg-slate-600" />
+                    {activeTab === 'logs' ? (
+                        <>
+                            <div className="flex-1 overflow-hidden relative">
+                                <NeuralLog />
+                                {/* Scanline for log */}
+                                <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.2)_50%)] bg-[length:100%_4px] pointer-events-none opacity-30" />
+                            </div>
+                        </>
+                    ) : (
+                        <div className="flex-1 overflow-auto p-3">
+                            <ClusterMetrics />
                         </div>
-                    </div>
-                    <div className="flex-1 overflow-hidden relative">
-                        <NeuralLog />
-                        {/* Scanline for log */}
-                        <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.2)_50%)] bg-[length:100%_4px] pointer-events-none opacity-50" />
-                    </div>
+                    )}
                 </div>
             </div>
         </div>
