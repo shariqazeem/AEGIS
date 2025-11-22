@@ -393,7 +393,8 @@ One sentence only:"""
                 model=config.PARALLAX_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=100,  # Reduced for faster response
-                temperature=0.5  # Slightly higher for more varied output
+                temperature=0.5,  # Slightly higher for more varied output
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}}  # Disable Qwen3 thinking mode
             )
 
             if response and response.choices and len(response.choices) > 0:
@@ -592,7 +593,8 @@ class ReasoningClient:
                 model=config.PARALLAX_MODEL,
                 messages=[{"role": "user", "content": "test"}],
                 max_tokens=5,
-                timeout=5
+                timeout=5,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}}
             )
 
             if response and response.choices:
@@ -718,7 +720,8 @@ Is this normal? Reply with JSON only:
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,  # Slightly higher for small models
-                    max_tokens=100    # Short for small models!
+                    max_tokens=100,   # Short for small models!
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}}
                 )
 
                 # Robust response validation for Parallax
@@ -882,14 +885,26 @@ Respond with ONLY valid JSON:
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=200,
-                    temperature=0.2
+                    temperature=0.2,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}}
                 )
                 if response and response.choices:
-                    content = response.choices[0].message.content
-                    result = self._extract_json(content)
-                    if result:
-                        log_event("PARALLAX", "Action plan generated via local cluster", "DEBUG")
-                        return result
+                    # Handle both OpenAI format (message) and Parallax format (messages)
+                    choice = response.choices[0]
+                    content = None
+                    if hasattr(choice, 'message') and choice.message and hasattr(choice.message, 'content'):
+                        content = choice.message.content
+                    elif hasattr(choice, 'messages') and choice.messages:
+                        if hasattr(choice.messages, 'content'):
+                            content = choice.messages.content
+                        elif isinstance(choice.messages, dict):
+                            content = choice.messages.get('content')
+
+                    if content:
+                        result = self._extract_json(content)
+                        if result:
+                            log_event("PARALLAX", "Action plan generated via local cluster", "DEBUG")
+                            return result
 
             elif self.backend == "gradient":
                 import requests
@@ -949,11 +964,24 @@ Be concise and professional. Highlight any patterns or critical events."""
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=150,
-                    temperature=0.3
+                    temperature=0.3,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}}
                 )
                 if response and response.choices:
-                    log_event("PARALLAX", "Log summary generated via local cluster", "DEBUG")
-                    return response.choices[0].message.content.strip()
+                    # Handle both OpenAI format (message) and Parallax format (messages)
+                    choice = response.choices[0]
+                    content = None
+                    if hasattr(choice, 'message') and choice.message and hasattr(choice.message, 'content'):
+                        content = choice.message.content
+                    elif hasattr(choice, 'messages') and choice.messages:
+                        if hasattr(choice.messages, 'content'):
+                            content = choice.messages.content
+                        elif isinstance(choice.messages, dict):
+                            content = choice.messages.get('content')
+
+                    if content:
+                        log_event("PARALLAX", "Log summary generated via local cluster", "DEBUG")
+                        return content.strip()
 
             elif self.backend == "gradient":
                 import requests
@@ -1010,13 +1038,26 @@ Respond with ONLY valid JSON:
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=150,
-                    temperature=0.2
+                    temperature=0.2,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}}
                 )
                 if response and response.choices:
-                    result = self._extract_json(response.choices[0].message.content)
-                    if result:
-                        log_event("PARALLAX", "Trend analysis via local cluster", "DEBUG")
-                        return result
+                    # Handle both OpenAI format (message) and Parallax format (messages)
+                    choice = response.choices[0]
+                    content = None
+                    if hasattr(choice, 'message') and choice.message and hasattr(choice.message, 'content'):
+                        content = choice.message.content
+                    elif hasattr(choice, 'messages') and choice.messages:
+                        if hasattr(choice.messages, 'content'):
+                            content = choice.messages.content
+                        elif isinstance(choice.messages, dict):
+                            content = choice.messages.get('content')
+
+                    if content:
+                        result = self._extract_json(content)
+                        if result:
+                            log_event("PARALLAX", "Trend analysis via local cluster", "DEBUG")
+                            return result
 
         except Exception as e:
             log_event("LLM", f"Trend analysis failed: {e}", "DEBUG")
