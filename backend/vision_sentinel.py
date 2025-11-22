@@ -43,6 +43,7 @@ class SystemState:
     """Shared state between sentinel and API"""
     def __init__(self):
         self.logs = deque(maxlen=200)  # Keep last 200 logs
+        self.threats = deque(maxlen=100)  # Keep last 100 threat events
         self.threat_level = "SAFE"
         self.last_description = ""
         self.scan_count = 0
@@ -52,6 +53,7 @@ class SystemState:
         self.last_features = {}
         self._subscribers = []  # SSE subscribers
         self._lock = threading.Lock()
+        self._event_counter = 0  # For event IDs
 
     def add_log(self, log_entry: dict):
         with self._lock:
@@ -63,9 +65,40 @@ class SystemState:
                 except:
                     pass
 
+    def add_threat(self, threat_info: dict):
+        """Store a threat event for the Vault"""
+        with self._lock:
+            self._event_counter += 1
+            threat_event = {
+                "id": f"EVT-{self._event_counter:04d}",
+                "timestamp": datetime.now().isoformat(),
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "type": threat_info.get("event_type", "Unknown"),
+                "severity": threat_info.get("severity", "medium"),
+                "description": threat_info.get("description", ""),
+                "confidence": threat_info.get("confidence", 0.5),
+                "status": "CRITICAL" if threat_info.get("severity") == "high" else "WARNING"
+            }
+            self.threats.append(threat_event)
+            return threat_event
+
+    def get_threats(self, limit: int = 50) -> list:
+        with self._lock:
+            return list(self.threats)[-limit:]
+
     def get_logs(self, limit: int = 50) -> list:
         with self._lock:
             return list(self.logs)[-limit:]
+
+    def purge(self):
+        """Purge all stored data"""
+        with self._lock:
+            self.logs.clear()
+            self.threats.clear()
+            self.scan_count = 0
+            self.threat_count = 0
+            self._event_counter = 0
+            self.last_description = ""
 
     def subscribe(self):
         """Subscribe to log updates (for SSE)"""
@@ -1546,6 +1579,9 @@ class AegisSentinel:
             action_plan = self.reasoning.get_action_plan(analysis)
             analysis['action_plan'] = action_plan
 
+            # Store threat event for Vault
+            system_state.add_threat(analysis)
+
             log_event(
                 "THREAT",
                 f"⚠️ THREAT #{self.threat_count}: {analysis['event_type']} "
@@ -1735,6 +1771,54 @@ async def stream_events():
 async def health_check():
     """Health check endpoint"""
     return {"status": "ok", "service": "aegis-sentinel"}
+
+@api.get("/threats")
+async def get_threats(limit: int = 50):
+    """Get recent threat events for Vault page"""
+    return {
+        "threats": system_state.get_threats(limit),
+        "total_count": system_state.threat_count
+    }
+
+@api.get("/config")
+async def get_config():
+    """Get current system configuration"""
+    return {
+        "mode": config.MODE,
+        "performance_mode": config.PERFORMANCE_MODE,
+        "inference_interval": config.INFERENCE_INTERVAL,
+        "parallax_model": config.PARALLAX_MODEL,
+        "parallax_base_url": config.PARALLAX_BASE_URL,
+        "use_parallax_for_scene": config.USE_PARALLAX_FOR_SCENE_DESCRIPTION,
+        "use_parallax_for_action": config.USE_PARALLAX_FOR_ACTION_PLANNING,
+        "use_parallax_for_logging": config.USE_PARALLAX_FOR_LOGGING
+    }
+
+@api.post("/config")
+async def update_config(mode: str = None, performance_mode: str = None):
+    """Update system configuration"""
+    applied = {}
+
+    if mode and mode in ['HOME', 'INDUSTRIAL']:
+        config.MODE = mode
+        applied['mode'] = config.MODE
+
+    if performance_mode and performance_mode in ['performance', 'balanced', 'eco']:
+        config.PERFORMANCE_MODE = performance_mode
+        config.INFERENCE_INTERVAL = config._INTERVALS.get(config.PERFORMANCE_MODE, 5.0)
+        applied['performance_mode'] = config.PERFORMANCE_MODE
+        applied['inference_interval'] = config.INFERENCE_INTERVAL
+
+    if applied:
+        log_event("CONFIG", f"Configuration updated: {applied}", "INFO")
+    return {"success": True, "applied": applied}
+
+@api.post("/purge")
+async def purge_data():
+    """Purge all stored data (for Vault page)"""
+    system_state.purge()
+    log_event("VAULT", "All data purged by user request", "WARN")
+    return {"success": True, "message": "All data purged"}
 
 def run_api_server():
     """Run FastAPI server in background thread"""
