@@ -28,57 +28,109 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global configuration - try multiple camera indices
+# Global configuration
 FPS_TARGET = 30
 JPEG_QUALITY = 85
 
-def find_camera():
+# Cache camera detection result (avoid re-scanning)
+_cached_camera = None
+_camera_cache_valid = False
+
+def find_camera(use_cache=True):
     """Find available camera by trying multiple indices and verifying it's a real camera"""
+    global _cached_camera, _camera_cache_valid
+
+    # Return cached result if available
+    if use_cache and _camera_cache_valid and _cached_camera is not None:
+        return _cached_camera
+
     logger.info("Searching for available cameras...")
 
-    # On macOS, try using AVFoundation backend explicitly for built-in camera
-    # CAP_AVFOUNDATION = 1800
-    backends_to_try = [
-        cv2.CAP_AVFOUNDATION if hasattr(cv2, 'CAP_AVFOUNDATION') else 0,  # macOS AVFoundation
-        cv2.CAP_ANY  # Auto-detect
-    ]
+    # Store all found cameras and prefer the one most likely to be built-in FaceTime camera
+    found_cameras = []
 
-    for backend in backends_to_try:
-        logger.info(f"Trying backend: {backend}")
+    # On macOS, MUST use AVFoundation backend for built-in camera
+    if hasattr(cv2, 'CAP_AVFOUNDATION'):
+        backend = cv2.CAP_AVFOUNDATION
+        backend_name = "AVFOUNDATION"
+    else:
+        backend = cv2.CAP_ANY
+        backend_name = "ANY"
 
-        # Try indices 0-3 (usually built-in camera is 0 or 1)
-        for index in range(4):
-            logger.info(f"  Trying camera index {index}...")
+    logger.info(f"Using backend: {backend_name}")
 
-            if backend == cv2.CAP_ANY:
-                camera = cv2.VideoCapture(index)
-            else:
-                camera = cv2.VideoCapture(index, backend)
+    # Only try indices 0-1 (MacBook has max 2 cameras, more causes warnings)
+    for index in range(2):
+        logger.info(f"  Checking camera index {index}...")
+
+        try:
+            camera = cv2.VideoCapture(index, backend)
 
             if camera.isOpened():
                 # Test if we can actually read a frame
                 ret, frame = camera.read()
                 if ret and frame is not None:
-                    # Check if it's a real camera (not screen capture)
-                    # Real cameras typically have certain resolutions
                     height, width = frame.shape[:2]
 
-                    # Skip if resolution is too large (likely screen capture)
-                    # MacBook cameras are usually 720p (1280x720) or 1080p (1920x1080)
-                    if width > 1920 or height > 1080:
-                        logger.info(f"  Skipping index {index}: Resolution too high ({width}x{height}) - likely screen capture")
-                        camera.release()
-                        continue
+                    # MacBook built-in FaceTime cameras are:
+                    # - HD (720p): 1280x720
+                    # - Some newer models: 1920x1080 but this is rare
+                    # Screen captures are usually much larger or match display resolution
 
-                    # Check camera backend name (on macOS, built-in camera uses AVFoundation)
-                    backend_name = camera.getBackendName() if hasattr(camera, 'getBackendName') else "unknown"
+                    # Calculate if this looks like a real camera
+                    is_720p = (width == 1280 and height == 720)
+                    is_1080p = (width == 1920 and height == 1080)
+                    is_vga = (width == 640 and height == 480)
 
-                    logger.success(f"✓ Found working camera at index {index}")
-                    logger.info(f"  Resolution: {width}x{height}")
-                    logger.info(f"  Backend: {backend_name}")
-                    camera.release()
-                    return index, backend
+                    # Score cameras (prefer lower resolution = more likely built-in)
+                    score = 0
+                    if is_720p:
+                        score = 100  # Most likely built-in FaceTime camera
+                    elif is_vga:
+                        score = 90   # Older or lower quality camera
+                    elif is_1080p:
+                        score = 50   # Could be built-in or screen capture
+                    elif width <= 1920 and height <= 1080:
+                        score = 30   # Might be a camera
+                    else:
+                        score = 0    # Likely screen capture
+
+                    logger.info(f"    Resolution: {width}x{height} (score: {score})")
+
+                    if score > 0:
+                        found_cameras.append({
+                            'index': index,
+                            'backend': backend,
+                            'width': width,
+                            'height': height,
+                            'score': score
+                        })
+                    else:
+                        logger.info(f"    Skipping: likely screen capture")
+
                 camera.release()
+        except Exception as e:
+            logger.debug(f"  Error checking camera {index}: {e}")
+            continue
+
+    # Sort by score (highest first) and return best match
+    if found_cameras:
+        found_cameras.sort(key=lambda x: x['score'], reverse=True)
+        best = found_cameras[0]
+
+        logger.success(f"✓ Selected camera at index {best['index']}")
+        logger.info(f"  Resolution: {best['width']}x{best['height']}")
+        logger.info(f"  Backend: {backend_name}")
+
+        # Log other cameras found
+        if len(found_cameras) > 1:
+            logger.info(f"  (Found {len(found_cameras)} total cameras, chose highest scored)")
+
+        # Cache the result
+        _cached_camera = (best['index'], best['backend'])
+        _camera_cache_valid = True
+
+        return _cached_camera
 
     logger.warning("No suitable camera found")
     return None, cv2.CAP_ANY
@@ -198,11 +250,12 @@ def root():
 @app.get("/health")
 def health():
     """Health check endpoint"""
-    camera_index = find_camera()
+    camera_index, backend = find_camera()
     return {
         "status": "healthy",
         "camera_available": camera_index is not None,
-        "camera_index": camera_index
+        "camera_index": camera_index,
+        "backend": backend if camera_index is not None else None
     }
 
 @app.get("/video_feed")
@@ -219,9 +272,9 @@ if __name__ == "__main__":
     logger.info("=" * 50)
 
     # Test camera on startup
-    camera_index = find_camera()
+    camera_index, backend = find_camera()
     if camera_index is not None:
-        logger.success(f"Camera ready on index {camera_index}")
+        logger.success(f"Camera ready on index {camera_index} (backend: {backend})")
     else:
         logger.warning("No camera detected - check System Preferences → Privacy → Camera")
 
