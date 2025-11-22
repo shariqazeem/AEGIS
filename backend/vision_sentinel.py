@@ -1782,10 +1782,24 @@ class AegisSentinel:
         self.scan_count = 0
         self.camera_index = None
         self.camera_backend = None
+        self.test_mode = False  # Test mode flag
 
         # Track analyses for trend detection (Parallax feature!)
         self.recent_analyses = []
         self.max_history = 20
+
+        # Test scenarios for --test mode
+        self.test_scenarios = [
+            {"name": "Normal - Person at desk", "type": "normal"},
+            {"name": "Normal - Empty room", "type": "empty"},
+            {"name": "Normal - Multiple people", "type": "multiple"},
+            {"name": "🔥 FIRE - Flames detected", "type": "fire"},
+            {"name": "🚨 CAMERA BLOCKED - Tampering", "type": "blocked"},
+            {"name": "🔪 WEAPON - Knife visible", "type": "weapon"},
+            {"name": "⚠️ FALLEN PERSON - Medical emergency", "type": "fallen"},
+            {"name": "Normal - Dark room (night)", "type": "dark"},
+        ]
+        self.test_scenario_index = 0
 
         # Track events for periodic summaries
         self.events_since_last_summary = []
@@ -2143,17 +2157,23 @@ class AegisSentinel:
         self.running = True
         log_event("AEGIS", "🔍 Sentinel active. Monitoring started.", "INFO")
 
-        # Demo mode flag
+        # Check test mode or demo mode
+        test_mode = getattr(self, 'test_mode', False)
         demo_mode = self.camera is None
-        if demo_mode:
+
+        if test_mode:
+            log_event("TEST", "🧪 TEST MODE ACTIVE - Cycling through threat scenarios", "INFO")
+            log_event("TEST", "   Scenarios: Normal, Fire, Camera Blocked, Weapon, Fallen Person", "INFO")
+            log_event("TEST", "   Press Ctrl+C to stop", "INFO")
+        elif demo_mode:
             log_event("DEMO", "🎬 Running in DEMO mode - Generating test frames", "INFO")
             log_event("DEMO", "   This demonstrates Parallax integration without camera", "INFO")
 
         try:
             while self.running:
-                if demo_mode:
-                    # Generate synthetic test frame for demo
-                    frame = self._generate_demo_frame()
+                if test_mode or demo_mode:
+                    # Generate test frame for scenario testing
+                    frame = self._generate_test_frame()
                 else:
                     frame = self.capture_frame()
 
@@ -2162,8 +2182,9 @@ class AegisSentinel:
                 else:
                     log_event("WARN", "No frame available", "WARN")
 
-                # Sleep between inferences
-                time.sleep(config.INFERENCE_INTERVAL)
+                # Sleep between inferences (shorter in test mode for faster cycling)
+                sleep_time = 3.0 if test_mode else config.INFERENCE_INTERVAL
+                time.sleep(sleep_time)
 
         except KeyboardInterrupt:
             log_event("AEGIS", "🛑 Sentinel stopping...", "INFO")
@@ -2172,52 +2193,120 @@ class AegisSentinel:
         finally:
             self.cleanup()
 
-    def _generate_demo_frame(self):
+    def _generate_test_frame(self):
         """
-        Generate synthetic frames for demo mode (no camera)
+        Generate test frames cycling through threat scenarios.
 
-        Creates varied test frames to showcase Parallax capabilities:
-        - Normal scenes (most common)
-        - Motion events
-        - Color alerts (red/orange)
-        - Simulated threats
+        Run with: python vision_sentinel.py --test
 
-        Great for competition demo without real camera!
+        Scenarios:
+        1. Normal - Person at desk
+        2. Normal - Empty room
+        3. Normal - Multiple people
+        4. FIRE - Flames detected
+        5. CAMERA BLOCKED - Tampering
+        6. WEAPON - Knife visible
+        7. FALLEN PERSON - Medical emergency
+        8. Dark room (night)
         """
         import numpy as np
 
-        # Standard 720p frame
         height, width = 720, 1280
         frame = np.zeros((height, width, 3), dtype=np.uint8)
 
-        # Base background - office-like lighting
-        frame[:] = [45, 40, 35]  # Dark gray (BGR)
+        # Get current test scenario
+        scenario = self.test_scenarios[self.test_scenario_index]
+        scenario_type = scenario["type"]
 
-        cycle = self.scan_count % 50
+        # Log scenario change every 2 scans
+        if self.scan_count % 2 == 0:
+            log_event("TEST", f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "INFO")
+            log_event("TEST", f"  SCENARIO: {scenario['name']}", "INFO")
+            log_event("TEST", f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "INFO")
 
-        if cycle < 35:
-            # Normal scene - slight variations
-            brightness = np.random.randint(100, 150)
-            frame[:] = [brightness - 20, brightness - 10, brightness]
-            # Add some texture
+        if scenario_type == "normal":
+            # Normal person - bright, good visibility
+            frame[:] = [140, 135, 130]
+            noise = np.random.randint(-15, 15, frame.shape, dtype=np.int16)
+            frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+            # Inject YOLO results
+            self.vision.last_features['yolo_objects'] = ['person']
+            self.vision.last_features['yolo_counts'] = {'person': 1}
+            self.vision.last_features['yolo_summary'] = '1 person(s)'
+
+        elif scenario_type == "empty":
+            # Empty room
+            frame[:] = [120, 115, 110]
             noise = np.random.randint(-10, 10, frame.shape, dtype=np.int16)
             frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+            self.vision.last_features['yolo_objects'] = []
+            self.vision.last_features['yolo_counts'] = {}
+            self.vision.last_features['yolo_summary'] = ''
 
-        elif cycle < 40:
-            # Motion event - brightness change
-            frame[:] = [180, 170, 160]
+        elif scenario_type == "multiple":
+            # Multiple people
+            frame[:] = [130, 125, 120]
+            noise = np.random.randint(-15, 15, frame.shape, dtype=np.int16)
+            frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+            self.vision.last_features['yolo_objects'] = ['person', 'person', 'cell phone']
+            self.vision.last_features['yolo_counts'] = {'person': 2, 'cell phone': 1}
+            self.vision.last_features['yolo_summary'] = '2 person(s), 1 cell phone(s)'
 
-        elif cycle < 45:
-            # Red alert - fire/danger
-            frame[:] = [20, 20, 180]  # Red in BGR
-            # Add orange flames
-            frame[height//3:2*height//3, width//4:3*width//4] = [30, 100, 255]
+        elif scenario_type == "fire":
+            # FIRE - High red/orange, flickering
+            frame[:] = [30, 50, 200]  # Red base
+            frame[height//4:3*height//4, width//4:3*width//4] = [40, 120, 255]  # Orange center
+            flicker = np.random.randint(-30, 30, frame.shape, dtype=np.int16)
+            frame = np.clip(frame.astype(np.int16) + flicker, 0, 255).astype(np.uint8)
+            self.vision.last_features['yolo_objects'] = []
+            self.vision.last_features['yolo_counts'] = {}
+            self.vision.last_features['yolo_summary'] = ''
+            self.vision.prev_frame = np.zeros_like(frame)  # High motion
 
-        else:
-            # Dark scene - possible threat
-            frame[:] = [30, 25, 20]
+        elif scenario_type == "blocked":
+            # CAMERA BLOCKED - Very dark, no edges
+            frame[:] = [5, 5, 5]  # Almost black
+            self.vision.last_features['yolo_objects'] = []
+            self.vision.last_features['yolo_counts'] = {}
+            self.vision.last_features['yolo_summary'] = ''
+
+        elif scenario_type == "weapon":
+            # WEAPON - Person with knife
+            frame[:] = [130, 125, 120]
+            noise = np.random.randint(-10, 10, frame.shape, dtype=np.int16)
+            frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+            self.vision.last_features['yolo_objects'] = ['person', 'knife']
+            self.vision.last_features['yolo_counts'] = {'person': 1, 'knife': 1}
+            self.vision.last_features['yolo_summary'] = '1 person(s), 1 knife(s)'
+
+        elif scenario_type == "fallen":
+            # FALLEN PERSON
+            frame[:] = [100, 95, 90]
+            noise = np.random.randint(-10, 10, frame.shape, dtype=np.int16)
+            frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+            self.vision.last_features['yolo_objects'] = ['person']
+            self.vision.last_features['yolo_counts'] = {'person': 1}
+            self.vision.last_features['yolo_summary'] = '1 person(s)'
+            self.vision.last_features['faces_in_lower_frame'] = 1
+
+        elif scenario_type == "dark":
+            # Dark room - normal, just dim
+            frame[:] = [40, 38, 35]
+            noise = np.random.randint(-5, 5, frame.shape, dtype=np.int16)
+            frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+            self.vision.last_features['yolo_objects'] = []
+            self.vision.last_features['yolo_counts'] = {}
+            self.vision.last_features['yolo_summary'] = ''
+
+        # Move to next scenario every 2 scans
+        if self.scan_count % 2 == 1:
+            self.test_scenario_index = (self.test_scenario_index + 1) % len(self.test_scenarios)
 
         return frame
+
+    def _generate_demo_frame(self):
+        """Backward compatible wrapper for test frame generation"""
+        return self._generate_test_frame()
 
     def cleanup(self):
         """Clean shutdown"""
@@ -2407,10 +2496,18 @@ def run_api_server():
 
 def main():
     """Main entry point"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description='AEGIS Vision Sentinel')
+    parser.add_argument('--test', action='store_true', help='Run in test mode cycling through threat scenarios')
+    args = parser.parse_args()
+
     # Banner
     print("=" * 50, flush=True)
     print("🛡️  AEGIS - Autonomous Edge Guard & Intelligence System", flush=True)
     print("   Parallax Competition 2025", flush=True)
+    if args.test:
+        print("   🧪 TEST MODE - Cycling through threat scenarios", flush=True)
     print("=" * 50, flush=True)
 
     # Start API server in background thread
@@ -2419,6 +2516,7 @@ def main():
     log_event("API", "✓ Status API started on http://localhost:8001", "SUCCESS")
 
     sentinel = AegisSentinel()
+    sentinel.test_mode = args.test
     sentinel.initialize()
     sentinel.run()
 
