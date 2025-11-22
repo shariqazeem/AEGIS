@@ -118,30 +118,30 @@ orchestration. All running on Apple Silicon."
 
 ---
 
-## 🎯 Key Messages for Judges
+## 🎯 Key Technical Differentiators
 
-### For Vikhyat (Moondream CTO)
+### Vision Architecture: Why Moondream2 for Edge Efficiency
 **Highlight:**
 - "Moondream processes frames at <2.5s latency on M1 Air"
-- "This validates Moondream's edge-first design philosophy"
+- "Validates edge-first design philosophy for consumer hardware"
 - **Show**: Real-time inference performance graph
 
-### For Ahmad Osman (Industrial AI)
+### Dual-Mode Operation: Bridging Home Care and Industrial NDT
 **Highlight:**
 - "Industrial Mode demonstrates practical edge deployment"
 - "Replaces $10K+ vision systems with a $999 Mac Mini"
 - **Show**: 3D print failure detection or server monitoring
 
-### For NoCommas (Agentic Systems)
+### Agentic Pipeline: Autonomous Multi-Model Orchestration
 **Highlight:**
 - "True agentic loop: autonomous decision-making without human intervention"
 - "Parallax enables the Perception → Reasoning → Action pipeline"
 - **Show**: Architecture diagram with data flow
 
-### For Gradient Team
+### Distributed Inference: Seamless Model Coordination
 **Highlight:**
-- "AEGIS is impossible without Parallax's distributed inference"
-- "Showcases Parallax's core value: orchestrating multiple models seamlessly"
+- "AEGIS leverages Parallax's distributed inference capabilities"
+- "Showcases orchestrating multiple models seamlessly on Apple Silicon"
 - **Show**: Parallax dashboard with both models loaded
 
 ---
