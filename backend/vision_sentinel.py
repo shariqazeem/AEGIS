@@ -309,6 +309,12 @@ class VisionSystem:
         edge_density = np.count_nonzero(edges) / (height * width)
         features['edge_density'] = edge_density
 
+        # === 6. CONTRAST (helps distinguish smoke from flash) ===
+        # Smoke: low contrast (uniform haze)
+        # Flash/light: high contrast (bright spot on dark background)
+        contrast = gray.std()  # Standard deviation of brightness
+        features['contrast'] = contrast
+
         # === 6. STORE FEATURES FOR THREAT DETECTION ===
         self.last_features = features.copy()
 
@@ -328,10 +334,10 @@ class VisionSystem:
 
     def detect_threat_from_features(self) -> dict:
         """
-        Rule-based threat detection using OpenCV features.
+        Smart threat detection using OpenCV features.
 
-        This is MORE RELIABLE than asking a small LLM to decide!
-        Returns threat info if detected, None if safe.
+        Key insight: If a face is clearly detected, visibility is FINE.
+        This prevents false positives from camera flash, lighting changes, etc.
         """
         features = self.last_features
         if not features:
@@ -340,43 +346,41 @@ class VisionSystem:
         threats = []
         severity = "low"
 
-        # === FIRE DETECTION ===
-        # High red/orange + motion = possible fire
+        # Get all features
         red_pct = features.get('red_percentage', 0)
         orange_pct = features.get('orange_percentage', 0)
         motion = features.get('motion', 0)
+        faces_total = features.get('faces_detected', 0)
+        faces_lower = features.get('faces_in_lower_frame', 0)
+        edge_density = features.get('edge_density', 0.1)
+        brightness = features.get('brightness', 128)
+        contrast = features.get('contrast', 50)
 
-        if red_pct > 20 and motion > 10:
-            threats.append("possible fire/flames")
+        # === FIRE DETECTION ===
+        # High red/orange + motion + flickering = possible fire
+        # Require BOTH high color AND motion for fire (not just color)
+        if red_pct > 25 and motion > 15:
+            threats.append("possible fire/flames detected")
             severity = "critical"
-        elif red_pct > 15 or orange_pct > 15:
-            threats.append("high red/orange color detected")
+        elif (red_pct > 30 or orange_pct > 30) and motion > 5:
+            threats.append("significant red/orange with movement")
             severity = "high"
 
         # === FALL DETECTION ===
-        # Face in lower frame + low motion = possible fall
-        faces_lower = features.get('faces_in_lower_frame', 0)
-        faces_total = features.get('faces_detected', 0)
-
-        if faces_lower > 0 and motion < 5:
-            threats.append("person in lower frame with no movement (possible fall)")
+        # Face in lower 30% of frame + very low motion = possible fall
+        # Must have been tracking person (faces_total > 0 in recent frames)
+        if faces_lower > 0 and motion < 3:
+            threats.append("person detected low in frame, not moving (possible fall)")
             severity = "critical"
 
         # === SMOKE/VISIBILITY DETECTION ===
-        # Very low edge density = possible smoke/obstruction
-        # BUT: High brightness + low edges = camera flash/overexposure (NOT smoke!)
-        edge_density = features.get('edge_density', 0.1)
-        brightness = features.get('brightness', 128)
-
-        # Smoke: low edges + moderate brightness (50-170)
-        # If brightness > 170 with low edges, that's likely flash/overexposure
-        if edge_density < 0.01 and 50 < brightness < 170:
-            threats.append("low visibility (possible smoke/fog)")
-            severity = "high" if severity != "critical" else severity
-
-        # === VERY DARK - Not a threat, just log it ===
-        # Dark rooms are normal, only flag if COMBINED with other issues
-        # (darkness alone shouldn't trigger alerts)
+        # IMPORTANT: If face is clearly detected, visibility is FINE!
+        # Only flag smoke if: low edges + no face detected + moderate brightness
+        if faces_total == 0 and edge_density < 0.008 and 40 < brightness < 160:
+            # Additional check: smoke has LOW contrast, flash has HIGH contrast
+            if contrast < 30:
+                threats.append("reduced visibility, no person visible (possible smoke)")
+                severity = "high" if severity != "critical" else severity
 
         if threats:
             return {
@@ -384,61 +388,73 @@ class VisionSystem:
                 "threats": threats,
                 "severity": severity,
                 "features": {
-                    "red_pct": red_pct,
-                    "orange_pct": orange_pct,
-                    "motion": motion,
+                    "red_pct": round(red_pct, 1),
+                    "orange_pct": round(orange_pct, 1),
+                    "motion": round(motion, 1),
                     "faces": faces_total,
                     "faces_lower": faces_lower,
-                    "edge_density": edge_density,
-                    "brightness": brightness
+                    "edge_density": round(edge_density, 4),
+                    "brightness": round(brightness, 1),
+                    "contrast": round(contrast, 1)
                 }
             }
 
         return None
 
     def _build_scene_description(self, features: dict) -> str:
-        """Build a text description from OpenCV features"""
+        """Build a detailed text description from OpenCV features"""
         parts = []
 
-        # Brightness
         brightness = features.get('brightness', 128)
-        if brightness < 50:
-            parts.append("Scene is very dark, low visibility")
-        elif brightness > 200:
-            parts.append("Scene is very bright, possible flash or glare")
-        else:
-            parts.append("Normal lighting conditions")
-
-        # Motion
         motion = features.get('motion', 0)
-        if motion > 30:
-            parts.append("SIGNIFICANT MOTION DETECTED")
-        elif motion > 15:
-            parts.append("moderate movement detected")
-        else:
-            parts.append("scene is calm with minimal movement")
-
-        # Colors
+        contrast = features.get('contrast', 50)
+        faces = features.get('faces_detected', 0)
+        faces_lower = features.get('faces_in_lower_frame', 0)
         red_pct = features.get('red_percentage', 0)
         orange_pct = features.get('orange_percentage', 0)
-        if red_pct > 15:
-            parts.append(f"WARNING: {red_pct:.1f}% red color detected (possible fire or emergency)")
-        if orange_pct > 10:
-            parts.append(f"Orange/yellow areas detected ({orange_pct:.1f}%)")
+        edge_density = features.get('edge_density', 0.1)
 
-        # Faces
-        faces = features.get('faces_detected', 0)
-        if faces > 0:
-            parts.append(f"{faces} person(s) visible")
-            if features.get('faces_in_lower_frame', 0) > 0:
-                parts.append("ALERT: Person detected in lower frame (possible fall)")
+        # === LIGHTING ===
+        if brightness < 30:
+            parts.append("Very dark room (night/lights off)")
+        elif brightness < 80:
+            parts.append("Dimly lit scene")
+        elif brightness > 200:
+            parts.append("Very bright (direct light source)")
         else:
-            parts.append("no faces detected in frame")
+            parts.append("Well-lit scene")
 
-        # Edge density (smoke detection)
-        edges = features.get('edge_density', 0.1)
-        if edges < 0.02:
-            parts.append("Low edge clarity - possible smoke, fog, or obstruction")
+        # === PEOPLE ===
+        if faces > 0:
+            if faces == 1:
+                if faces_lower > 0:
+                    parts.append("One person visible in lower part of frame")
+                else:
+                    parts.append("One person visible, normal position")
+            else:
+                parts.append(f"{faces} people visible")
+        else:
+            parts.append("No people detected")
+
+        # === ACTIVITY ===
+        if motion > 30:
+            parts.append("High activity/movement")
+        elif motion > 10:
+            parts.append("Some movement detected")
+        else:
+            parts.append("Scene is still")
+
+        # === COLORS (potential hazards) ===
+        if red_pct > 20:
+            parts.append(f"Significant red color ({red_pct:.0f}%)")
+        if orange_pct > 15:
+            parts.append(f"Orange/yellow present ({orange_pct:.0f}%)")
+
+        # === VISIBILITY ===
+        if edge_density < 0.01 and contrast < 30:
+            parts.append("Reduced visibility (hazy)")
+        elif contrast > 60:
+            parts.append("Clear visibility, good contrast")
 
         return ". ".join(parts) + "."
 
@@ -447,21 +463,39 @@ class VisionSystem:
         Send scene features to Parallax for intelligent interpretation.
 
         This is key for the competition - shows Parallax doing real AI work!
-        Note: Using simplified prompt for Qwen3-0.6B (small model)
         """
         if not self.parallax_client:
             return None
 
         mode_context = "home security" if config.MODE == "HOME" else "industrial QC"
 
-        # Simplified prompt for small model (Qwen3-0.6B)
-        prompt = f"""Describe this {mode_context} scene briefly based on:
-- Brightness: {features.get('brightness', 128):.0f}/255
-- Motion: {features.get('motion', 0):.1f}
-- Red%: {features.get('red_percentage', 0):.1f}
-- People: {features.get('faces_detected', 0)}
+        # Build a detailed prompt with all features
+        brightness = features.get('brightness', 128)
+        motion = features.get('motion', 0)
+        faces = features.get('faces_detected', 0)
+        contrast = features.get('contrast', 50)
+        red_pct = features.get('red_percentage', 0)
 
-One sentence only:"""
+        # Determine lighting level
+        if brightness < 30:
+            light = "dark"
+        elif brightness < 80:
+            light = "dim"
+        elif brightness > 200:
+            light = "very bright"
+        else:
+            light = "normal"
+
+        # Determine activity level
+        if motion > 20:
+            activity = "active"
+        elif motion > 5:
+            activity = "some motion"
+        else:
+            activity = "still"
+
+        prompt = f"""Scene: {light} lighting, {faces} person(s), {activity}.
+Describe what's likely happening in one natural sentence:"""
 
         try:
             response = self.parallax_client.chat.completions.create(
