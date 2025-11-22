@@ -125,9 +125,10 @@ def log_event(event_type: str, message: str, level: str = "INFO"):
     print(log_line, flush=True)
 
     # Also print special markers for frontend
-    if "THREAT" in message.upper() or level == "CRITICAL":
+    # Only trigger on actual threat detections, not DEBUG logs
+    if level == "CRITICAL":
         print("THREAT DETECTED", flush=True)
-    elif "SAFE" in message or "NORMAL" in message:
+    elif level != "DEBUG" and ("SAFE" in message.upper() or "NORMAL" in message.upper()):
         print("SAFE", flush=True)
 
 # =============================================================================
@@ -647,11 +648,11 @@ class ReasoningClient:
             # The prompt must be SHORT for small models to respond well
             if has_threat_words:
                 prompt = f"""Scene: "{vision_output[:200]}"
-Is this a threat? Reply with JSON only:
+DANGER keywords found. Classify threat. JSON only:
 {{"threat": true, "type": "fire/fall/danger", "action": "call help"}}"""
             else:
                 prompt = f"""Scene: "{vision_output[:200]}"
-Is this normal? Reply with JSON only:
+Normal scene, no danger words. Confirm safe. JSON only:
 {{"threat": false, "type": "normal", "action": "monitor"}}"""
 
             if self.backend == "gradient":
@@ -719,8 +720,8 @@ Is this normal? Reply with JSON only:
                 response = client.chat.completions.create(
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=0.3,  # Slightly higher for small models
-                    max_tokens=100,   # Short for small models!
+                    temperature=0.1,  # Lower for more consistent output
+                    max_tokens=150,   # Increased to avoid truncation
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}}
                 )
 
