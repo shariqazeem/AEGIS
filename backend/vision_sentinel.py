@@ -396,8 +396,19 @@ One sentence only:"""
                 temperature=0.5  # Slightly higher for more varied output
             )
 
-            if response and response.choices and response.choices[0].message:
-                content = response.choices[0].message.content
+            if response and response.choices and len(response.choices) > 0:
+                choice = response.choices[0]
+                content = None
+
+                # Handle both OpenAI format (message) and Parallax format (messages)
+                if hasattr(choice, 'message') and choice.message and hasattr(choice.message, 'content'):
+                    content = choice.message.content
+                elif hasattr(choice, 'messages') and choice.messages:
+                    if hasattr(choice.messages, 'content'):
+                        content = choice.messages.content
+                    elif isinstance(choice.messages, dict):
+                        content = choice.messages.get('content')
+
                 if content and content.strip():
                     log_event("PARALLAX", "Scene interpreted via local cluster", "DEBUG")
                     return content.strip()
@@ -719,12 +730,25 @@ Is this normal? Reply with JSON only:
                     log_event("LLM", "Empty response choices", "WARN")
                     return self._mock_reasoning(vision_output)
 
-                message = response.choices[0].message
-                if not message or not hasattr(message, 'content') or not message.content:
+                # Parallax returns 'messages' (with 's') not 'message' - handle both!
+                choice = response.choices[0]
+                content = None
+
+                # Try standard OpenAI format first
+                if hasattr(choice, 'message') and choice.message and hasattr(choice.message, 'content'):
+                    content = choice.message.content
+                # Try Parallax format (messages with 's')
+                elif hasattr(choice, 'messages') and choice.messages:
+                    if hasattr(choice.messages, 'content'):
+                        content = choice.messages.content
+                    elif isinstance(choice.messages, dict):
+                        content = choice.messages.get('content')
+
+                if not content:
                     log_event("LLM", "No content in response", "WARN")
                     return self._mock_reasoning(vision_output)
 
-                content = message.content.strip()
+                content = content.strip()
                 log_event("LLM", f"Parallax response: {content[:80]}", "DEBUG")
 
                 # Parse JSON - try to extract it from the response
