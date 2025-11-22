@@ -72,13 +72,21 @@ class Config:
     # Parallax API (LOCAL - for competition demo)
     PARALLAX_BASE_URL = "http://localhost:3001/v1"
     PARALLAX_API_KEY = "not-needed-for-local"
-    # Available models (best to worst for scene understanding):
-    # - "Qwen/Qwen3-8B" (RECOMMENDED - great balance)
-    # - "Qwen/Qwen3-14B" (better but slower)
-    # - "deepseek-ai/DeepSeek-V3" (very powerful)
-    # - "moonshotai/Kimi-K2-Instruct" (excellent reasoning)
-    # - "Qwen/Qwen3-0.6B" (fast but limited)
-    PARALLAX_MODEL = "Qwen/Qwen3-8B"  # Better model for competition!
+    # Available models - CHOOSE BASED ON YOUR HARDWARE:
+    #
+    # For M1 Air (8GB): Use small models only!
+    # - "Qwen/Qwen3-0.6B" (works on 8GB)
+    # - "Qwen/Qwen3-1.7B" (might work on 8GB)
+    # - "Qwen/Qwen2.5-1.5B-Instruct" (might work, better quality)
+    #
+    # For M1 Pro/Max (16GB+): Can use larger models
+    # - "Qwen/Qwen3-4B" (good balance)
+    # - "Qwen/Qwen3-8B" (better quality)
+    #
+    # For cluster/cloud: Use any model
+    # - "deepseek-ai/DeepSeek-V3", "moonshotai/Kimi-K2-Instruct"
+    #
+    PARALLAX_MODEL = "Qwen/Qwen3-0.6B"  # Safe for M1 Air 8GB
 
     # Gradient Cloud API (fallback if Parallax unavailable)
     GRADIENT_API_KEY = "ak-f5a93640ff449cd3d44457a5be3172d212355e56fdc0709f0bd5d1a042bc0d89"
