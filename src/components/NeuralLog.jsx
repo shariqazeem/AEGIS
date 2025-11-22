@@ -24,6 +24,9 @@ const typeColors = {
     ACTION: 'text-amber-400 bg-amber-500/20 border-amber-500/30',
     TREND: 'text-pink-400 bg-pink-500/20 border-pink-500/30',
     SUMMARY: 'text-violet-400 bg-violet-500/20 border-violet-500/30',
+    CLUSTER: 'text-yellow-400 bg-yellow-500/20 border-yellow-500/30',
+    CAPTURE: 'text-rose-400 bg-rose-500/20 border-rose-500/30',
+    CONFIG: 'text-lime-400 bg-lime-500/20 border-lime-500/30',
 };
 
 const NeuralLog = () => {

@@ -1,10 +1,20 @@
 import { useSystemStore } from '../store/useSystemStore';
+import audioService from './audio';
 
 // Note: Backend runs on port 8001 for status API
 // Start backend with: python backend/vision_sentinel.py
 
 let eventSource = null;
 let statusPollingInterval = null;
+
+// Initialize audio on first user interaction (browser policy)
+let audioInitialized = false;
+const initAudio = () => {
+    if (!audioInitialized) {
+        audioService.init();
+        audioInitialized = true;
+    }
+};
 
 export const startSentinel = async () => {
     try {
@@ -137,6 +147,9 @@ const connectSSE = () => {
                 // Update threat level based on log
                 if (data.level === 'CRITICAL') {
                     useSystemStore.getState().setThreatLevel('CRITICAL');
+                    // Play threat alert sound!
+                    initAudio();
+                    audioService.playThreatAlert();
                 } else if (data.message?.includes('Normal') || data.message?.includes('SAFE')) {
                     useSystemStore.getState().setThreatLevel('SAFE');
                 }

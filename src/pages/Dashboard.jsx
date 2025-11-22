@@ -1,25 +1,16 @@
 import React, { useEffect } from 'react';
-import { Card, AreaChart, Title, Text } from '@tremor/react';
 import VideoFeed from '../components/VideoFeed';
 import ThreatBadge from '../components/ThreatBadge';
 import NeuralLog from '../components/NeuralLog';
+import ClusterMetrics from '../components/ClusterMetrics';
+import NetworkDiagram from '../components/NetworkDiagram';
 import { startSentinel, stopSentinel } from '../services/sentinel';
-
-const chartdata = [
-    { date: '00:00', CPU: 12, RAM: 20 },
-    { date: '00:01', CPU: 15, RAM: 22 },
-    { date: '00:02', CPU: 45, RAM: 25 },
-    { date: '00:03', CPU: 32, RAM: 24 },
-    { date: '00:04', CPU: 28, RAM: 24 },
-    { date: '00:05', CPU: 18, RAM: 22 },
-    { date: '00:06', CPU: 14, RAM: 21 },
-];
 
 const Dashboard = () => {
     useEffect(() => {
         startSentinel();
         return () => {
-            // stopSentinel(); 
+            // stopSentinel();
         };
     }, []);
 
@@ -37,32 +28,9 @@ const Dashboard = () => {
                     <VideoFeed className="w-full h-full object-contain opacity-90" />
                 </div>
 
-                {/* System Load Chart */}
-                <div className="glass-panel p-4 rounded-xl border border-white/5 relative overflow-hidden group shrink-0 h-48">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-neon-blue to-transparent opacity-20 group-hover:opacity-50 transition-opacity" />
-                    <div className="flex items-center justify-between mb-2">
-                        <div>
-                            <h3 className="text-neon-blue font-mono tracking-wider text-sm">SYSTEM METRICS</h3>
-                            <p className="text-slate-500 text-[10px] font-mono">REAL-TIME RESOURCE CONSUMPTION</p>
-                        </div>
-                        <div className="flex gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-neon-blue animate-pulse" />
-                            <span className="text-[9px] text-neon-blue font-mono">LIVE</span>
-                        </div>
-                    </div>
-                    <AreaChart
-                        className="h-28"
-                        data={chartdata}
-                        index="date"
-                        categories={["CPU", "RAM"]}
-                        colors={["cyan", "emerald"]}
-                        showXAxis={false}
-                        showYAxis={false}
-                        showLegend={true}
-                        showGridLines={false}
-                        showAnimation={true}
-                        curveType="monotone"
-                    />
+                {/* Network Diagram - Data Flow Visualization */}
+                <div className="shrink-0">
+                    <NetworkDiagram />
                 </div>
             </div>
 
@@ -71,6 +39,11 @@ const Dashboard = () => {
                 {/* Threat Status */}
                 <div className="glass-panel p-1 rounded-xl shrink-0">
                     <ThreatBadge />
+                </div>
+
+                {/* Cluster Metrics - Parallax Showcase! */}
+                <div className="glass-panel p-3 rounded-xl shrink-0 overflow-auto max-h-[40%]">
+                    <ClusterMetrics />
                 </div>
 
                 {/* Neural Log */}
