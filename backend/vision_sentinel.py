@@ -72,7 +72,13 @@ class Config:
     # Parallax API (LOCAL - for competition demo)
     PARALLAX_BASE_URL = "http://localhost:3001/v1"
     PARALLAX_API_KEY = "not-needed-for-local"
-    PARALLAX_MODEL = "Qwen/Qwen3-0.6B"  # Lightweight model for local inference
+    # Available models (best to worst for scene understanding):
+    # - "Qwen/Qwen3-8B" (RECOMMENDED - great balance)
+    # - "Qwen/Qwen3-14B" (better but slower)
+    # - "deepseek-ai/DeepSeek-V3" (very powerful)
+    # - "moonshotai/Kimi-K2-Instruct" (excellent reasoning)
+    # - "Qwen/Qwen3-0.6B" (fast but limited)
+    PARALLAX_MODEL = "Qwen/Qwen3-8B"  # Better model for competition!
 
     # Gradient Cloud API (fallback if Parallax unavailable)
     GRADIENT_API_KEY = "ak-f5a93640ff449cd3d44457a5be3172d212355e56fdc0709f0bd5d1a042bc0d89"
@@ -494,16 +500,33 @@ class VisionSystem:
         else:
             activity = "still"
 
-        prompt = f"""Scene: {light} lighting, {faces} person(s), {activity}.
-Describe what's likely happening in one natural sentence:"""
+        # Build detailed context for the larger model
+        context_parts = []
+        if faces > 0:
+            context_parts.append(f"{faces} person(s) detected")
+        else:
+            context_parts.append("no people visible")
+
+        if red_pct > 10:
+            context_parts.append(f"red color present ({red_pct:.0f}%)")
+
+        context = ", ".join(context_parts)
+
+        prompt = f"""You are a home security AI assistant. Analyze this scene:
+- Lighting: {light}
+- Activity: {activity}
+- Observations: {context}
+- Contrast: {"clear" if contrast > 50 else "hazy" if contrast < 30 else "normal"}
+
+Describe what's happening in ONE natural sentence (no safety assessment, just describe the scene):"""
 
         try:
             response = self.parallax_client.chat.completions.create(
                 model=config.PARALLAX_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=100,  # Reduced for faster response
-                temperature=0.5,  # Slightly higher for more varied output
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}}  # Disable Qwen3 thinking mode
+                max_tokens=150,  # More tokens for better response
+                temperature=0.7,  # Higher for more natural output
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}}
             )
 
             if response and response.choices and len(response.choices) > 0:
@@ -978,16 +1001,22 @@ Normal scene, no danger words. Confirm safe. JSON only:
             return {"actions": ["Continue monitoring"], "priority": "low"}
 
         try:
-            prompt = f"""You are a security AI assistant. Given this threat analysis, provide a specific action plan.
+            # Enhanced prompt for larger models
+            desc = threat_analysis.get('description', 'No description')[:300]
+            features = threat_analysis.get('features', {})
 
-Threat Analysis:
+            prompt = f"""You are AEGIS, an intelligent home security AI. A potential threat has been detected.
+
+THREAT DETAILS:
 - Type: {threat_analysis.get('event_type', 'unknown')}
 - Severity: {threat_analysis.get('severity', 'unknown')}
-- Confidence: {threat_analysis.get('confidence', 0)}
-- Description: {threat_analysis.get('description', 'No description')}
+- Scene: {desc}
+- Visual indicators: Red {features.get('red_pct', 0):.0f}%, Motion {features.get('motion', 0):.0f}, Faces {features.get('faces', 0)}
+
+As a responsible AI security system, recommend immediate actions. Be specific and practical.
 
 Respond with ONLY valid JSON:
-{{"actions": ["action1", "action2"], "priority": "high/medium/low", "notify": ["person/system"], "estimated_response_time": "X minutes"}}"""
+{{"actions": ["specific action 1", "specific action 2", "specific action 3"], "priority": "critical/high/medium", "notify": ["homeowner", "emergency services if needed"], "reasoning": "brief explanation"}}"""
 
             if self.backend == "parallax" and self.client:
                 response = self.client.chat.completions.create(
@@ -1305,12 +1334,17 @@ class AegisSentinel:
         log_event("AEGIS", f"Performance: {config.PERFORMANCE_MODE.upper()} ({config.INFERENCE_INTERVAL}s interval)", "INFO")
         log_event("AEGIS", f"Vision: {config.VISION_MODEL.upper()}", "INFO")
 
+        # Show Parallax model prominently (important for competition!)
+        log_event("PARALLAX", f"🤖 Model: {config.PARALLAX_MODEL}", "INFO")
+        log_event("PARALLAX", f"   Endpoint: {config.PARALLAX_BASE_URL}", "INFO")
+
         # Show Parallax integration features
-        log_event("PARALLAX", "Integration Features:", "INFO")
-        log_event("PARALLAX", f"  Scene Interpretation: {'✓' if config.USE_PARALLAX_FOR_SCENE_DESCRIPTION else '✗'}", "INFO")
-        log_event("PARALLAX", f"  Threat Analysis: {'✓' if config.USE_PARALLAX_FOR_THREAT_ANALYSIS else '✗'}", "INFO")
-        log_event("PARALLAX", f"  Action Planning: {'✓' if config.USE_PARALLAX_FOR_ACTION_PLANNING else '✗'}", "INFO")
-        log_event("PARALLAX", f"  Log Summaries: {'✓' if config.USE_PARALLAX_FOR_LOGGING else '✗'}", "INFO")
+        log_event("PARALLAX", "AI Pipeline Stages:", "INFO")
+        log_event("PARALLAX", f"  1. Scene Interpretation: {'✓' if config.USE_PARALLAX_FOR_SCENE_DESCRIPTION else '✗'}", "INFO")
+        log_event("PARALLAX", f"  2. Threat Analysis: ✓ (Rule-based + AI)", "INFO")
+        log_event("PARALLAX", f"  3. Action Planning: {'✓' if config.USE_PARALLAX_FOR_ACTION_PLANNING else '✗'}", "INFO")
+        log_event("PARALLAX", f"  4. Trend Analysis: ✓", "INFO")
+        log_event("PARALLAX", f"  5. Log Summaries: {'✓' if config.USE_PARALLAX_FOR_LOGGING else '✗'}", "INFO")
 
         # Load vision model
         self.vision.load_model()
