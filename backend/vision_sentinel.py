@@ -1997,48 +1997,77 @@ class AegisSentinel:
         # This shows real AI inference on the Parallax cluster
         features = getattr(self.vision, 'last_features', {})
 
-        # Try Parallax AI analysis first (this is what wins the competition!)
-        ai_analysis = self.reasoning.analyze_threat_with_parallax(features, description)
+        # === PRE-CHECK: Camera Obstruction Detection (Rule-based) ===
+        # This MUST detect camera tampering - AI can't see if camera is blocked!
+        brightness = features.get('brightness', 128)
+        edge_density = features.get('edge_density', 0.1)
+        contrast = features.get('contrast', 50)
+        yolo_objects = features.get('yolo_objects', [])
 
-        if ai_analysis:
-            # Parallax AI made the threat decision! 🎯
+        camera_blocked = (
+            brightness < 35 and          # Very dark
+            edge_density < 0.01 and      # No edges (uniform surface)
+            contrast < 25 and            # Low contrast
+            len(yolo_objects) == 0       # YOLO sees nothing
+        )
+
+        if camera_blocked:
+            # Camera is obstructed - this is a THREAT!
+            log_event("THREAT", "🚨 Camera obstruction detected! Possible tampering.", "CRITICAL")
             analysis = {
-                "threat_detected": ai_analysis.get("threat_detected", False),
-                "severity": ai_analysis.get("severity", "low"),
-                "event_type": ai_analysis.get("event_type", "normal"),
-                "confidence": ai_analysis.get("confidence", 0.5),
-                "action_required": "Check immediately" if ai_analysis.get("threat_detected") else "Continue monitoring",
-                "description": description,
-                "reasoning": ai_analysis.get("reasoning", ""),
-                "ai_analyzed": True,
-                "inference_ms": ai_analysis.get("inference_ms", 0),
+                "threat_detected": True,
+                "severity": "critical",
+                "event_type": "camera_blocked",
+                "confidence": 0.95,
+                "action_required": "Check camera immediately - possible tampering",
+                "description": "Camera appears to be covered or obstructed",
+                "reasoning": f"Very dark (brightness={brightness:.0f}), no edges, no objects detected",
+                "ai_analyzed": False,
                 "features": features
             }
         else:
-            # Fallback to rule-based detection (backup if Parallax unavailable)
-            threat_info = self.vision.detect_threat_from_features()
+            # Try Parallax AI analysis (this is what wins the competition!)
+            ai_analysis = self.reasoning.analyze_threat_with_parallax(features, description)
 
-            if threat_info:
+            if ai_analysis:
+                # Parallax AI made the threat decision! 🎯
                 analysis = {
-                    "threat_detected": True,
-                    "severity": threat_info.get("severity", "high"),
-                    "event_type": ", ".join(threat_info.get("threats", ["unknown"])),
-                    "confidence": 0.90,
-                    "action_required": "Check immediately",
+                    "threat_detected": ai_analysis.get("threat_detected", False),
+                    "severity": ai_analysis.get("severity", "low"),
+                    "event_type": ai_analysis.get("event_type", "normal"),
+                    "confidence": ai_analysis.get("confidence", 0.5),
+                    "action_required": "Check immediately" if ai_analysis.get("threat_detected") else "Continue monitoring",
                     "description": description,
-                    "features": threat_info.get("features", {}),
-                    "ai_analyzed": False
+                    "reasoning": ai_analysis.get("reasoning", ""),
+                    "ai_analyzed": True,
+                    "inference_ms": ai_analysis.get("inference_ms", 0),
+                    "features": features
                 }
             else:
-                analysis = {
-                    "threat_detected": False,
-                    "severity": "low",
-                    "event_type": "normal",
-                    "confidence": 0.95,
-                    "action_required": "Continue monitoring",
-                    "description": description,
-                    "ai_analyzed": False
-                }
+                # Fallback to rule-based detection (backup if Parallax unavailable)
+                threat_info = self.vision.detect_threat_from_features()
+
+                if threat_info:
+                    analysis = {
+                        "threat_detected": True,
+                        "severity": threat_info.get("severity", "high"),
+                        "event_type": ", ".join(threat_info.get("threats", ["unknown"])),
+                        "confidence": 0.90,
+                        "action_required": "Check immediately",
+                        "description": description,
+                        "features": threat_info.get("features", {}),
+                        "ai_analyzed": False
+                    }
+                else:
+                    analysis = {
+                        "threat_detected": False,
+                        "severity": "low",
+                        "event_type": "normal",
+                        "confidence": 0.95,
+                        "action_required": "Continue monitoring",
+                        "description": description,
+                        "ai_analyzed": False
+                    }
 
         analysis['timestamp'] = timestamp
 
