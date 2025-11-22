@@ -24,6 +24,7 @@ protobuf==5.28.3
 # Video Processing
 opencv-python==4.10.0.84
 numpy==1.26.4
+ultralytics==8.3.0  # YOLOv8 for mature object detection
 
 # HTTP Client for Parallax & Gradient Cloud Integration
 httpx==0.27.2

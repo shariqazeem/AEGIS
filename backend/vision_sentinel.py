@@ -23,7 +23,9 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 from collections import deque
+from collections import deque
 from typing import Optional
+from ultralytics import YOLO  # YOLOv8 for mature object detection
 
 # Rich console output (visible in Tauri logs)
 from rich.console import Console
@@ -317,7 +319,9 @@ class VisionSystem:
         self.frame_count = 0
         self.prev_frame = None  # For motion detection
         self.parallax_client = None
+        self.parallax_client = None
         self.last_features = {}  # Store latest features for threat detection
+        self.yolo_model = None   # YOLOv8 model instance
 
     def load_model(self):
         """Initialize vision system based on configuration"""
@@ -342,6 +346,15 @@ class VisionSystem:
                         log_event("VISION", "✓ Parallax client ready for scene interpretation", "SUCCESS")
                     except Exception as e:
                         log_event("VISION", f"Parallax client init failed: {e}", "WARN")
+                        log_event("VISION", f"Parallax client init failed: {e}", "WARN")
+
+                # Initialize YOLOv8 for mature object detection (Enhancing OpenCV mode)
+                try:
+                    log_event("VISION", "Loading YOLOv8n (Nano) for object detection...", "INFO")
+                    self.yolo_model = YOLO("yolov8n.pt")
+                    log_event("VISION", "✓ YOLOv8n loaded successfully", "SUCCESS")
+                except Exception as e:
+                    log_event("VISION", f"YOLO load failed: {e}", "WARN")
                 return
 
             elif mode == "api":
@@ -402,7 +415,7 @@ class VisionSystem:
             mode = config.VISION_MODEL
 
             if mode == "opencv":
-                # Fast OpenCV analysis → Parallax interpretation
+                # Fast OpenCV analysis + YOLO Object Detection → Parallax interpretation
                 return self._opencv_analysis(frame)
             elif mode == "api":
                 return self._api_analysis(frame)
@@ -427,8 +440,29 @@ class VisionSystem:
         """
         import numpy as np
 
+        # === 0. YOLO OBJECT DETECTION (MATURE VISION) ===
+        yolo_results = {}
+        if self.yolo_model:
+            try:
+                yolo_results = self._yolo_analysis(frame)
+            except Exception as e:
+                log_event("VISION", f"YOLO analysis failed: {e}", "WARN")
+
+
         height, width = frame.shape[:2]
         features = {}
+        
+        # Merge YOLO results
+        if yolo_results:
+            features['yolo_objects'] = yolo_results.get('objects', [])
+            features['yolo_counts'] = yolo_results.get('counts', {})
+            features['yolo_summary'] = yolo_results.get('summary', '')
+            
+            # Update threat flags based on YOLO
+            if 'fire' in features['yolo_counts']:
+                features['fire_detected'] = True
+            if 'person' in features['yolo_counts']:
+                features['person_detected'] = True
 
         # === 1. BRIGHTNESS ANALYSIS ===
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -633,7 +667,48 @@ class VisionSystem:
         elif contrast > 60:
             parts.append("Clear visibility, good contrast")
 
+        # === YOLO OBJECTS ===
+        if 'yolo_summary' in features and features['yolo_summary']:
+            parts.append(f"Objects visible: {features['yolo_summary']}")
+
         return ". ".join(parts) + "."
+
+    def _yolo_analysis(self, frame) -> dict:
+        """
+        Run YOLOv8 object detection.
+        Returns structured data about detected objects.
+        """
+        if not self.yolo_model:
+            return {}
+
+        # Run inference
+        results = self.yolo_model(frame, verbose=False)
+        
+        detected_objects = []
+        counts = {}
+        
+        for result in results:
+            boxes = result.boxes
+            for box in boxes:
+                # Get class name
+                cls_id = int(box.cls[0])
+                name = self.yolo_model.names[cls_id]
+                conf = float(box.conf[0])
+                
+                if conf > 0.4:  # Confidence threshold
+                    detected_objects.append(name)
+                    counts[name] = counts.get(name, 0) + 1
+
+        # Create summary string
+        summary_parts = []
+        for name, count in counts.items():
+            summary_parts.append(f"{count} {name}(s)")
+            
+        return {
+            "objects": detected_objects,
+            "counts": counts,
+            "summary": ", ".join(summary_parts)
+        }
 
     def _parallax_interpret_scene(self, features: dict, basic_description: str) -> str:
         """
@@ -652,6 +727,10 @@ class VisionSystem:
         faces = features.get('faces_detected', 0)
         contrast = features.get('contrast', 50)
         red_pct = features.get('red_percentage', 0)
+        
+        # YOLO Data
+        yolo_summary = features.get('yolo_summary', 'No specific objects identified')
+        yolo_counts = features.get('yolo_counts', {})
 
         # Determine lighting level
         if brightness < 30:
@@ -680,6 +759,10 @@ class VisionSystem:
 
         if red_pct > 10:
             context_parts.append(f"red color present ({red_pct:.0f}%)")
+
+        # Add YOLO context
+        if yolo_counts:
+            context_parts.append(f"Detected: {yolo_summary}")
 
         context = ", ".join(context_parts)
 
@@ -1190,6 +1273,7 @@ THREAT DETAILS:
 - Severity: {threat_analysis.get('severity', 'unknown')}
 - Scene: {desc}
 - Visual indicators: Red {features.get('red_pct', 0):.0f}%, Motion {features.get('motion', 0):.0f}, Faces {features.get('faces', 0)}
+- Detected Objects: {features.get('yolo_summary', 'None')}
 
 As a responsible AI security system, recommend immediate actions. Be specific and practical.
 
@@ -1359,6 +1443,7 @@ SENSOR DATA:
 - Motion: {activity} (score: {motion:.1f})
 - Visibility: {visibility} (edges: {edge_density:.4f}, contrast: {contrast:.0f})
 - People: {faces} detected{f', {faces_lower} in lower frame' if faces_lower > 0 else ''}
+- Objects: {features.get('yolo_summary', 'None')}
 - Red color: {red_pct:.1f}%, Orange: {orange_pct:.1f}%
 
 SCENE: {description[:200]}
