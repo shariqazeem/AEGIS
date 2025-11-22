@@ -729,17 +729,20 @@ class VisionSystem:
     def _yolo_analysis(self, frame) -> dict:
         """
         Run YOLOv8 object detection.
-        Returns structured data about detected objects.
+        Returns structured data about detected objects including positions.
         """
         if not self.yolo_model:
             return {}
 
+        height, width = frame.shape[:2]
+
         # Run inference
         results = self.yolo_model(frame, verbose=False)
-        
+
         detected_objects = []
         counts = {}
-        
+        persons_in_lower_frame = 0
+
         for result in results:
             boxes = result.boxes
             for box in boxes:
@@ -747,20 +750,30 @@ class VisionSystem:
                 cls_id = int(box.cls[0])
                 name = self.yolo_model.names[cls_id]
                 conf = float(box.conf[0])
-                
+
                 if conf > 0.4:  # Confidence threshold
                     detected_objects.append(name)
                     counts[name] = counts.get(name, 0) + 1
+
+                    # Track person position for fallen detection
+                    if name == 'person':
+                        # Get bounding box (x1, y1, x2, y2)
+                        x1, y1, x2, y2 = box.xyxy[0].tolist()
+                        # Check if person's center/bottom is in lower 30% of frame
+                        person_bottom = y2
+                        if person_bottom > height * 0.7:
+                            persons_in_lower_frame += 1
 
         # Create summary string
         summary_parts = []
         for name, count in counts.items():
             summary_parts.append(f"{count} {name}(s)")
-            
+
         return {
             "objects": detected_objects,
             "counts": counts,
-            "summary": ", ".join(summary_parts)
+            "summary": ", ".join(summary_parts),
+            "persons_in_lower_frame": persons_in_lower_frame
         }
 
     def _yolo_mode_analysis(self, frame) -> str:
@@ -792,11 +805,14 @@ class VisionSystem:
                 features['yolo_objects'] = yolo_results.get('objects', [])
                 features['yolo_counts'] = yolo_results.get('counts', {})
                 features['yolo_summary'] = yolo_results.get('summary', '')
+                # Get person position for fallen detection
+                features['persons_in_lower_frame'] = yolo_results.get('persons_in_lower_frame', 0)
             except Exception as e:
                 log_event("VISION", f"YOLO analysis error: {e}", "DEBUG")
                 features['yolo_objects'] = []
                 features['yolo_counts'] = {}
                 features['yolo_summary'] = ''
+                features['persons_in_lower_frame'] = 0
 
         # Direct threat detection from YOLO
         dangerous_objects = ['knife', 'fire', 'scissors', 'gun']
@@ -847,11 +863,14 @@ class VisionSystem:
 
         # Person count from YOLO
         features['faces_detected'] = features.get('yolo_counts', {}).get('person', 0)
-        # Use injected value if available (test mode), otherwise default to 0
+        # Use injected value if available (test mode), otherwise use YOLO detection
         if hasattr(self, 'last_features') and 'faces_in_lower_frame' in self.last_features:
             features['faces_in_lower_frame'] = self.last_features['faces_in_lower_frame']
+        elif 'persons_in_lower_frame' in features:
+            # Use YOLO-detected person position for real cameras
+            features['faces_in_lower_frame'] = features['persons_in_lower_frame']
         else:
-            features['faces_in_lower_frame'] = 0  # Could be computed from YOLO boxes
+            features['faces_in_lower_frame'] = 0
 
         # === 3. STORE FEATURES FOR THREAT DETECTION ===
         self.last_features = features.copy()
@@ -2573,6 +2592,7 @@ async def get_metrics():
             "avg_inference_ms": round(metrics["avg_inference_ms"], 1),
             "total_inferences": metrics["total_inferences"],
             "tokens_processed": metrics["tokens_processed"],
+            "tokens_per_second": round(metrics["tokens_processed"] / max(1, metrics["uptime_seconds"]), 1),
             "inference_history": metrics["inference_times"]
         },
         "resources": {
@@ -2580,6 +2600,16 @@ async def get_metrics():
             "memory_used_mb": metrics["memory_used_mb"],
             "model_loaded": system_state.parallax_connected,
             "uptime_seconds": metrics["uptime_seconds"]
+        },
+        "ai_pipeline": {
+            "stages": [
+                {"name": "Scene Interpretation", "status": "active", "powered_by": "Parallax"},
+                {"name": "Threat Detection", "status": "active", "powered_by": "Parallax AI"},
+                {"name": "Action Planning", "status": "active", "powered_by": "Parallax"},
+                {"name": "Trend Analysis", "status": "active", "powered_by": "Parallax"},
+                {"name": "Log Summaries", "status": "active", "powered_by": "Parallax"}
+            ],
+            "all_stages_active": system_state.parallax_connected
         }
     }
 

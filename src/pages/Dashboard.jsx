@@ -3,6 +3,7 @@ import VideoFeed from '../components/VideoFeed';
 import ThreatBadge from '../components/ThreatBadge';
 import NeuralLog from '../components/NeuralLog';
 import ClusterMetrics from '../components/ClusterMetrics';
+import AIPipeline from '../components/AIPipeline';
 import NetworkDiagram from '../components/NetworkDiagram';
 import { startSentinel, stopSentinel } from '../services/sentinel';
 
@@ -78,7 +79,8 @@ const Dashboard = () => {
                             </div>
                         </>
                     ) : (
-                        <div className="flex-1 overflow-auto p-3">
+                        <div className="flex-1 overflow-auto p-3 space-y-4">
+                            <AIPipeline />
                             <ClusterMetrics />
                         </div>
                     )}
