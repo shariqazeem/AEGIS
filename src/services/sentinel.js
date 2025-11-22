@@ -1,71 +1,169 @@
 import { useSystemStore } from '../store/useSystemStore';
 
-// Note: For development, run the Python backend manually in separate terminals:
-// Terminal 1: python backend/video_server.py
-// Terminal 2: python backend/vision_sentinel.py
-//
-// The sidecar approach is disabled for now to avoid Tauri plugin issues.
-// In production, you can re-enable the sidecar binary spawning.
+// Note: Backend runs on port 8001 for status API
+// Start backend with: python backend/vision_sentinel.py
 
-let sentinelProcess = null;
-let logPollingInterval = null;
+let eventSource = null;
+let statusPollingInterval = null;
 
 export const startSentinel = async () => {
     try {
-        console.log("AEGIS SENTINEL: Checking for backend connection...");
+        console.log("AEGIS SENTINEL: Connecting to backend...");
 
         // Check if video server is running
         try {
             const videoResponse = await fetch('http://localhost:8000/health');
             if (videoResponse.ok) {
                 console.log("✓ Video server connected");
-                useSystemStore.getState().addLog("✓ Video server online");
+                useSystemStore.getState().addLog({
+                    level: "SUCCESS",
+                    type: "VIDEO",
+                    message: "✓ Video server online"
+                });
             }
         } catch (e) {
             console.warn("⚠ Video server not detected. Start: python backend/video_server.py");
-            useSystemStore.getState().addLog("⚠ Video server offline");
+            useSystemStore.getState().addLog({
+                level: "WARN",
+                type: "VIDEO",
+                message: "⚠ Video server offline"
+            });
         }
 
-        // Check if status API is running (optional)
+        // Connect to status API
         try {
             const statusResponse = await fetch('http://localhost:8001/status');
             if (statusResponse.ok) {
                 console.log("✓ Status API connected");
                 const data = await statusResponse.json();
                 useSystemStore.getState().setThreatLevel(data.threat_level);
+                useSystemStore.getState().setSystemInfo({
+                    parallaxConnected: data.parallax_connected,
+                    cameraActive: data.camera_active,
+                    model: data.model,
+                    scanCount: data.scan_count,
+                    threatCount: data.threat_count
+                });
+
+                useSystemStore.getState().addLog({
+                    level: "SUCCESS",
+                    type: "API",
+                    message: `✓ Connected to AEGIS backend (${data.model})`
+                });
+
+                // Load initial logs
+                const logsResponse = await fetch('http://localhost:8001/logs?limit=50');
+                if (logsResponse.ok) {
+                    const logsData = await logsResponse.json();
+                    logsData.logs.forEach(log => {
+                        useSystemStore.getState().addLog(log);
+                    });
+                }
             }
         } catch (e) {
-            console.log("ℹ Status API not running (optional)");
+            console.warn("⚠ Status API not running. Start: python backend/vision_sentinel.py");
+            useSystemStore.getState().addLog({
+                level: "WARN",
+                type: "API",
+                message: "⚠ Status API offline - start backend"
+            });
         }
 
-        useSystemStore.getState().addLog("🛡️ AEGIS Sentinel monitoring active");
-        useSystemStore.getState().setThreatLevel("SAFE");
+        // Connect to Server-Sent Events for real-time updates
+        connectSSE();
 
-        // Poll for status updates from backend
-        logPollingInterval = setInterval(async () => {
+        // Also poll for status updates as backup
+        statusPollingInterval = setInterval(async () => {
             try {
                 const response = await fetch('http://localhost:8001/status');
                 if (response.ok) {
                     const data = await response.json();
                     useSystemStore.getState().setThreatLevel(data.threat_level);
+                    useSystemStore.getState().setSystemInfo({
+                        parallaxConnected: data.parallax_connected,
+                        cameraActive: data.camera_active,
+                        model: data.model,
+                        scanCount: data.scan_count,
+                        threatCount: data.threat_count,
+                        lastDescription: data.last_description
+                    });
                 }
             } catch (e) {
-                // Status API not available, that's ok for manual testing
+                // Status API not available
             }
-        }, 2000);  // Poll every 2 seconds
+        }, 3000);  // Poll every 3 seconds
 
-        console.log("AEGIS BRAIN: Running in manual mode (backend started separately)");
+        console.log("AEGIS BRAIN: Monitoring active");
 
     } catch (error) {
         console.error("FAILED TO START SENTINEL:", error);
-        useSystemStore.getState().addLog("❌ Sentinel initialization failed");
+        useSystemStore.getState().addLog({
+            level: "ERROR",
+            type: "SYSTEM",
+            message: "❌ Sentinel initialization failed"
+        });
+    }
+};
+
+const connectSSE = () => {
+    // Close existing connection
+    if (eventSource) {
+        eventSource.close();
+    }
+
+    try {
+        eventSource = new EventSource('http://localhost:8001/events');
+
+        eventSource.onopen = () => {
+            console.log("✓ SSE connected - real-time logs active");
+        };
+
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+
+                // Skip keepalive messages
+                if (data.type === 'keepalive') return;
+
+                // Handle init message
+                if (data.type === 'init') {
+                    useSystemStore.getState().setThreatLevel(data.threat_level);
+                    return;
+                }
+
+                // Add log to store
+                useSystemStore.getState().addLog(data);
+
+                // Update threat level based on log
+                if (data.level === 'CRITICAL') {
+                    useSystemStore.getState().setThreatLevel('CRITICAL');
+                } else if (data.message?.includes('Normal') || data.message?.includes('SAFE')) {
+                    useSystemStore.getState().setThreatLevel('SAFE');
+                }
+            } catch (e) {
+                console.error("SSE parse error:", e);
+            }
+        };
+
+        eventSource.onerror = (error) => {
+            console.warn("SSE connection error, will retry...");
+            eventSource.close();
+            // Retry connection after 5 seconds
+            setTimeout(connectSSE, 5000);
+        };
+    } catch (e) {
+        console.warn("SSE not available, falling back to polling");
     }
 };
 
 export const stopSentinel = async () => {
-    if (logPollingInterval) {
-        clearInterval(logPollingInterval);
-        logPollingInterval = null;
+    if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+    }
+    if (statusPollingInterval) {
+        clearInterval(statusPollingInterval);
+        statusPollingInterval = null;
     }
     console.log("AEGIS BRAIN: Stopped");
 };

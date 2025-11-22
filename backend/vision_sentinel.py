@@ -19,12 +19,69 @@ import cv2
 import time
 import json
 import threading
+import asyncio
 from datetime import datetime
 from pathlib import Path
+from collections import deque
+from typing import Optional
 
 # Rich console output (visible in Tauri logs)
 from rich.console import Console
 console = Console()
+
+# FastAPI for status API (frontend integration)
+from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+import uvicorn
+
+# =============================================================================
+# SHARED STATE FOR API
+# =============================================================================
+
+class SystemState:
+    """Shared state between sentinel and API"""
+    def __init__(self):
+        self.logs = deque(maxlen=200)  # Keep last 200 logs
+        self.threat_level = "SAFE"
+        self.last_description = ""
+        self.scan_count = 0
+        self.threat_count = 0
+        self.parallax_connected = False
+        self.camera_active = False
+        self.last_features = {}
+        self._subscribers = []  # SSE subscribers
+        self._lock = threading.Lock()
+
+    def add_log(self, log_entry: dict):
+        with self._lock:
+            self.logs.append(log_entry)
+            # Notify SSE subscribers
+            for queue in self._subscribers:
+                try:
+                    queue.put_nowait(log_entry)
+                except:
+                    pass
+
+    def get_logs(self, limit: int = 50) -> list:
+        with self._lock:
+            return list(self.logs)[-limit:]
+
+    def subscribe(self):
+        """Subscribe to log updates (for SSE)"""
+        import queue
+        q = queue.Queue(maxsize=100)
+        with self._lock:
+            self._subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q):
+        with self._lock:
+            if q in self._subscribers:
+                self._subscribers.remove(q)
+
+# Global state instance
+system_state = SystemState()
 
 # Ensure output is unbuffered for Tauri
 sys.stdout.reconfigure(line_buffering=True)
@@ -129,20 +186,32 @@ config = Config()
 
 def log_event(event_type: str, message: str, level: str = "INFO"):
     """
-    Structured logging to stdout for Tauri frontend
+    Structured logging to stdout for Tauri frontend + API
 
     Output format: [TIMESTAMP] LEVEL: MESSAGE
     Special keywords that Tauri listens for: THREAT, SAFE, CRITICAL
     """
     timestamp = datetime.now().strftime("%H:%M:%S")
+    iso_timestamp = datetime.now().isoformat()
     log_line = f"[{timestamp}] {level}: {message}"
     print(log_line, flush=True)
 
-    # Also print special markers for frontend
-    # Only trigger on actual threat detections, not DEBUG logs
+    # Store in shared state for API
+    log_entry = {
+        "timestamp": iso_timestamp,
+        "time": timestamp,
+        "level": level,
+        "type": event_type,
+        "message": message
+    }
+    system_state.add_log(log_entry)
+
+    # Update threat level in state
     if level == "CRITICAL":
+        system_state.threat_level = "CRITICAL"
         print("THREAT DETECTED", flush=True)
     elif level != "DEBUG" and ("SAFE" in message.upper() or "NORMAL" in message.upper()):
+        system_state.threat_level = "SAFE"
         print("SAFE", flush=True)
 
 # =============================================================================
@@ -1365,8 +1434,10 @@ class AegisSentinel:
             # Show actual backend after connection check (may have fallen back)
             actual_backend = "Parallax Local" if self.reasoning.parallax_available else "Gradient Cloud" if self.reasoning.gradient_available else "Mock"
             log_event("LLM", f"✓ {actual_backend} ready", "SUCCESS")
+            system_state.parallax_connected = self.reasoning.parallax_available
         else:
             log_event("LLM", f"⚠ Using fallback mode", "WARN")
+            system_state.parallax_connected = False
 
         # Find and open camera with robust detection
         try:
@@ -1384,6 +1455,7 @@ class AegisSentinel:
                     ret, frame = self.camera.read()
                     if ret:
                         log_event("CAMERA", "✓ Camera initialized", "SUCCESS")
+                        system_state.camera_active = True
                     else:
                         log_event("CAMERA", "⚠ Camera opened but cannot read frames", "WARN")
                         self.camera.release()
@@ -1398,6 +1470,7 @@ class AegisSentinel:
             log_event("CAMERA", f"Camera initialization failed: {e}", "WARN")
             self.camera = None
 
+        system_state.camera_active = self.camera is not None
         log_event("AEGIS", "🟢 System READY", "SUCCESS")
         print("SAFE", flush=True)  # Initial state
 
@@ -1422,11 +1495,14 @@ class AegisSentinel:
         5. Summary: Parallax log generation (periodic)
         """
         self.scan_count += 1
+        system_state.scan_count = self.scan_count
         timestamp = datetime.now().strftime("%H:%M:%S")
 
         # === STAGE 1: Vision Analysis (Parallax Scene Interpretation) ===
         log_event("VISION", "Analyzing frame...", "DEBUG")
         description = self.vision.analyze_frame(frame)
+        system_state.last_description = description
+        system_state.last_features = getattr(self.vision, 'last_features', {})
 
         # === STAGE 2: Threat Detection (Rule-Based from OpenCV Features) ===
         # Using rule-based detection is MORE RELIABLE than asking small LLMs!
@@ -1464,6 +1540,7 @@ class AegisSentinel:
         # === STAGE 3: Action Planning via Parallax (if threat) ===
         if analysis["threat_detected"]:
             self.threat_count += 1
+            system_state.threat_count = self.threat_count
 
             # Get detailed action plan from Parallax
             action_plan = self.reasoning.get_action_plan(analysis)
@@ -1588,6 +1665,82 @@ class AegisSentinel:
         log_event("AEGIS", "👋 Sentinel terminated", "INFO")
 
 # =============================================================================
+# FASTAPI STATUS API (for frontend integration)
+# =============================================================================
+
+api = FastAPI(title="AEGIS Status API", version="1.0.0")
+
+# Enable CORS for frontend
+api.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@api.get("/status")
+async def get_status():
+    """Get current system status"""
+    return {
+        "threat_level": system_state.threat_level,
+        "scan_count": system_state.scan_count,
+        "threat_count": system_state.threat_count,
+        "parallax_connected": system_state.parallax_connected,
+        "camera_active": system_state.camera_active,
+        "last_description": system_state.last_description,
+        "last_features": system_state.last_features,
+        "model": config.PARALLAX_MODEL
+    }
+
+@api.get("/logs")
+async def get_logs(limit: int = 50):
+    """Get recent logs"""
+    return {
+        "logs": system_state.get_logs(limit),
+        "threat_level": system_state.threat_level
+    }
+
+@api.get("/events")
+async def stream_events():
+    """Server-Sent Events for real-time log updates"""
+    def generate():
+        queue = system_state.subscribe()
+        try:
+            # Send initial state
+            yield f"data: {json.dumps({'type': 'init', 'threat_level': system_state.threat_level})}\n\n"
+
+            while True:
+                try:
+                    # Wait for new log with timeout
+                    log = queue.get(timeout=30)
+                    yield f"data: {json.dumps(log)}\n\n"
+                except:
+                    # Send keepalive
+                    yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
+        finally:
+            system_state.unsubscribe(queue)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+@api.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "ok", "service": "aegis-sentinel"}
+
+def run_api_server():
+    """Run FastAPI server in background thread"""
+    uvicorn.run(api, host="0.0.0.0", port=8001, log_level="warning")
+
+# =============================================================================
 # ENTRY POINT
 # =============================================================================
 
@@ -1598,6 +1751,11 @@ def main():
     print("🛡️  AEGIS - Autonomous Edge Guard & Intelligence System", flush=True)
     print("   Parallax Competition 2025", flush=True)
     print("=" * 50, flush=True)
+
+    # Start API server in background thread
+    api_thread = threading.Thread(target=run_api_server, daemon=True)
+    api_thread.start()
+    log_event("API", "✓ Status API started on http://localhost:8001", "SUCCESS")
 
     sentinel = AegisSentinel()
     sentinel.initialize()
