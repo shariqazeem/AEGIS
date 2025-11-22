@@ -372,40 +372,37 @@ class VisionSystem:
         Send scene features to Parallax for intelligent interpretation.
 
         This is key for the competition - shows Parallax doing real AI work!
+        Note: Using simplified prompt for Qwen3-0.6B (small model)
         """
         if not self.parallax_client:
             return None
 
-        mode_context = "home security monitoring" if config.MODE == "HOME" else "industrial quality control"
+        mode_context = "home security" if config.MODE == "HOME" else "industrial QC"
 
-        prompt = f"""You are an AI vision assistant for {mode_context}. Given these detected features, provide a brief natural language scene description:
+        # Simplified prompt for small model (Qwen3-0.6B)
+        prompt = f"""Describe this {mode_context} scene briefly based on:
+- Brightness: {features.get('brightness', 128):.0f}/255
+- Motion: {features.get('motion', 0):.1f}
+- Red%: {features.get('red_percentage', 0):.1f}
+- People: {features.get('faces_detected', 0)}
 
-Features detected:
-- Brightness: {features.get('brightness', 'unknown')}/255
-- Motion score: {features.get('motion', 0):.1f}
-- Red color: {features.get('red_percentage', 0):.1f}%
-- Orange color: {features.get('orange_percentage', 0):.1f}%
-- Faces detected: {features.get('faces_detected', 0)}
-- Face in lower frame: {features.get('faces_in_lower_frame', 0)}
-- Edge density: {features.get('edge_density', 0):.3f}
-
-Basic analysis: {basic_description}
-
-Respond with ONLY a brief 1-2 sentence scene description. Be specific about any potential safety concerns. No JSON, just plain text."""
+One sentence only:"""
 
         try:
             response = self.parallax_client.chat.completions.create(
                 model=config.PARALLAX_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=150,
-                temperature=0.3
+                max_tokens=100,  # Reduced for faster response
+                temperature=0.5  # Slightly higher for more varied output
             )
 
             if response and response.choices and response.choices[0].message:
                 content = response.choices[0].message.content
-                if content:
+                if content and content.strip():
                     log_event("PARALLAX", "Scene interpreted via local cluster", "DEBUG")
                     return content.strip()
+                else:
+                    log_event("VISION", "Empty scene interpretation, using basic description", "DEBUG")
         except Exception as e:
             log_event("VISION", f"Parallax scene interpretation error: {e}", "DEBUG")
 
@@ -629,14 +626,20 @@ class ReasoningClient:
             return self._mock_reasoning(vision_output)
 
         try:
-            # Simplified prompt for cleaner JSON output
-            prompt = f"""Analyze this scene and respond with ONLY valid JSON, no other text:
+            # Check if scene contains obvious threat keywords first
+            scene_lower = vision_output.lower()
+            has_threat_words = any(kw in scene_lower for kw in config.THREAT_KEYWORDS)
 
-Scene: "{vision_output}"
-
-JSON format: {{"threat_detected": false, "severity": "low", "event_type": "normal", "confidence": 0.9, "action_required": "Continue monitoring", "description": "brief analysis"}}
-
-For threats use: {{"threat_detected": true, "severity": "high", "event_type": "fall/fire/intrusion", "confidence": 0.8, "action_required": "Alert security", "description": "what you see"}}"""
+            # Simplified prompt for small models like Qwen3-0.6B
+            # The prompt must be SHORT for small models to respond well
+            if has_threat_words:
+                prompt = f"""Scene: "{vision_output[:200]}"
+Is this a threat? Reply with JSON only:
+{{"threat": true, "type": "fire/fall/danger", "action": "call help"}}"""
+            else:
+                prompt = f"""Scene: "{vision_output[:200]}"
+Is this normal? Reply with JSON only:
+{{"threat": false, "type": "normal", "action": "monitor"}}"""
 
             if self.backend == "gradient":
                 # Use Gradient Cloud API with requests
@@ -703,8 +706,8 @@ For threats use: {{"threat_detected": true, "severity": "high", "event_type": "f
                 response = client.chat.completions.create(
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=0.1,
-                    max_tokens=500
+                    temperature=0.3,  # Slightly higher for small models
+                    max_tokens=100    # Short for small models!
                 )
 
                 # Robust response validation for Parallax
@@ -722,19 +725,41 @@ For threats use: {{"threat_detected": true, "severity": "high", "event_type": "f
                     return self._mock_reasoning(vision_output)
 
                 content = message.content.strip()
-                log_event("LLM", f"Response: {content[:100]}...", "DEBUG")
+                log_event("LLM", f"Parallax response: {content[:80]}", "DEBUG")
 
                 # Parse JSON - try to extract it from the response
                 result = self._extract_json(content)
                 if result:
-                    return result
+                    # Convert simplified format to full format
+                    return self._normalize_threat_response(result, vision_output)
 
-                log_event("LLM", "Failed to parse JSON, using fallback", "WARN")
+                log_event("LLM", "Failed to parse JSON, using keyword fallback", "DEBUG")
                 return self._mock_reasoning(vision_output)
 
         except Exception as e:
             log_event("LLM", f"Reasoning failed: {e}", "WARN")
             return self._mock_reasoning(vision_output)
+
+    def _normalize_threat_response(self, parsed: dict, vision_output: str) -> dict:
+        """Convert simplified JSON format to full threat response format"""
+        # Handle both old format (threat_detected) and new format (threat)
+        is_threat = parsed.get("threat", parsed.get("threat_detected", False))
+
+        # Normalize boolean - handle string "true"/"false"
+        if isinstance(is_threat, str):
+            is_threat = is_threat.lower() == "true"
+
+        event_type = parsed.get("type", parsed.get("event_type", "normal"))
+        action = parsed.get("action", parsed.get("action_required", "Continue monitoring"))
+
+        return {
+            "threat_detected": bool(is_threat),
+            "severity": "high" if is_threat else "low",
+            "event_type": event_type,
+            "confidence": 0.85 if is_threat else 0.90,
+            "action_required": action,
+            "description": parsed.get("description", vision_output[:200])
+        }
 
     def _extract_json(self, content: str) -> dict:
         """Extract JSON from LLM response - handles wrapped text"""
@@ -750,6 +775,7 @@ For threats use: {{"threat_detected": true, "severity": "high", "event_type": "f
         json_patterns = [
             r'```json\s*(.*?)\s*```',  # Markdown code block
             r'```\s*(.*?)\s*```',       # Plain code block
+            r'(\{[^{}]*"threat"[^{}]*\})',  # JSON object with "threat" key (simplified)
             r'(\{[^{}]*"threat_detected"[^{}]*\})',  # JSON object with threat_detected
             r'(\{.*?\})',               # Any JSON object
         ]
