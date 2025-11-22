@@ -364,17 +364,19 @@ class VisionSystem:
 
         # === SMOKE/VISIBILITY DETECTION ===
         # Very low edge density = possible smoke/obstruction
+        # BUT: High brightness + low edges = camera flash/overexposure (NOT smoke!)
         edge_density = features.get('edge_density', 0.1)
         brightness = features.get('brightness', 128)
 
-        if edge_density < 0.015 and brightness > 50:
+        # Smoke: low edges + moderate brightness (50-170)
+        # If brightness > 170 with low edges, that's likely flash/overexposure
+        if edge_density < 0.01 and 50 < brightness < 170:
             threats.append("low visibility (possible smoke/fog)")
             severity = "high" if severity != "critical" else severity
 
-        # === VERY DARK (power outage, etc) ===
-        if brightness < 30:
-            threats.append("very dark scene")
-            severity = "medium" if severity == "low" else severity
+        # === VERY DARK - Not a threat, just log it ===
+        # Dark rooms are normal, only flag if COMBINED with other issues
+        # (darkness alone shouldn't trigger alerts)
 
         if threats:
             return {
