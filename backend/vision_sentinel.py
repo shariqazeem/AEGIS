@@ -153,6 +153,7 @@ class VisionSystem:
         self.frame_count = 0
         self.prev_frame = None  # For motion detection
         self.parallax_client = None
+        self.last_features = {}  # Store latest features for threat detection
 
     def load_model(self):
         """Initialize vision system based on configuration"""
@@ -308,10 +309,13 @@ class VisionSystem:
         edge_density = np.count_nonzero(edges) / (height * width)
         features['edge_density'] = edge_density
 
-        # === 6. BUILD SCENE DESCRIPTION ===
+        # === 6. STORE FEATURES FOR THREAT DETECTION ===
+        self.last_features = features.copy()
+
+        # === 7. BUILD SCENE DESCRIPTION ===
         description = self._build_scene_description(features)
 
-        # === 7. SEND TO PARALLAX FOR INTELLIGENT INTERPRETATION ===
+        # === 8. SEND TO PARALLAX FOR INTELLIGENT INTERPRETATION ===
         if config.USE_PARALLAX_FOR_SCENE_DESCRIPTION and self.parallax_client:
             try:
                 enhanced = self._parallax_interpret_scene(features, description)
@@ -321,6 +325,74 @@ class VisionSystem:
                 log_event("VISION", f"Parallax interpretation failed: {e}", "DEBUG")
 
         return description
+
+    def detect_threat_from_features(self) -> dict:
+        """
+        Rule-based threat detection using OpenCV features.
+
+        This is MORE RELIABLE than asking a small LLM to decide!
+        Returns threat info if detected, None if safe.
+        """
+        features = self.last_features
+        if not features:
+            return None
+
+        threats = []
+        severity = "low"
+
+        # === FIRE DETECTION ===
+        # High red/orange + motion = possible fire
+        red_pct = features.get('red_percentage', 0)
+        orange_pct = features.get('orange_percentage', 0)
+        motion = features.get('motion', 0)
+
+        if red_pct > 20 and motion > 10:
+            threats.append("possible fire/flames")
+            severity = "critical"
+        elif red_pct > 15 or orange_pct > 15:
+            threats.append("high red/orange color detected")
+            severity = "high"
+
+        # === FALL DETECTION ===
+        # Face in lower frame + low motion = possible fall
+        faces_lower = features.get('faces_in_lower_frame', 0)
+        faces_total = features.get('faces_detected', 0)
+
+        if faces_lower > 0 and motion < 5:
+            threats.append("person in lower frame with no movement (possible fall)")
+            severity = "critical"
+
+        # === SMOKE/VISIBILITY DETECTION ===
+        # Very low edge density = possible smoke/obstruction
+        edge_density = features.get('edge_density', 0.1)
+        brightness = features.get('brightness', 128)
+
+        if edge_density < 0.015 and brightness > 50:
+            threats.append("low visibility (possible smoke/fog)")
+            severity = "high" if severity != "critical" else severity
+
+        # === VERY DARK (power outage, etc) ===
+        if brightness < 30:
+            threats.append("very dark scene")
+            severity = "medium" if severity == "low" else severity
+
+        if threats:
+            return {
+                "threat_detected": True,
+                "threats": threats,
+                "severity": severity,
+                "features": {
+                    "red_pct": red_pct,
+                    "orange_pct": orange_pct,
+                    "motion": motion,
+                    "faces": faces_total,
+                    "faces_lower": faces_lower,
+                    "edge_density": edge_density,
+                    "brightness": brightness
+                }
+            }
+
+        return None
 
     def _build_scene_description(self, features: dict) -> str:
         """Build a text description from OpenCV features"""
@@ -1266,7 +1338,7 @@ class AegisSentinel:
 
         Multi-stage Parallax usage:
         1. Vision: OpenCV features → Parallax scene interpretation
-        2. Threat: Parallax reasoning for threat detection
+        2. Threat: RULE-BASED detection from OpenCV features (reliable!)
         3. Action: Parallax action planning (if threat)
         4. Trend: Parallax trend analysis (periodic)
         5. Summary: Parallax log generation (periodic)
@@ -1278,8 +1350,32 @@ class AegisSentinel:
         log_event("VISION", "Analyzing frame...", "DEBUG")
         description = self.vision.analyze_frame(frame)
 
-        # === STAGE 2: Threat Detection via Parallax ===
-        analysis = self.reasoning.reason_about_threat(description)
+        # === STAGE 2: Threat Detection (Rule-Based from OpenCV Features) ===
+        # Using rule-based detection is MORE RELIABLE than asking small LLMs!
+        threat_info = self.vision.detect_threat_from_features()
+
+        if threat_info:
+            # Actual threat detected by OpenCV rules
+            analysis = {
+                "threat_detected": True,
+                "severity": threat_info.get("severity", "high"),
+                "event_type": ", ".join(threat_info.get("threats", ["unknown"])),
+                "confidence": 0.90,  # High confidence - rule-based
+                "action_required": "Check immediately",
+                "description": description,
+                "features": threat_info.get("features", {})
+            }
+        else:
+            # No threat - safe scene
+            analysis = {
+                "threat_detected": False,
+                "severity": "low",
+                "event_type": "normal",
+                "confidence": 0.95,
+                "action_required": "Continue monitoring",
+                "description": description
+            }
+
         analysis['timestamp'] = timestamp
 
         # Track for trend analysis
