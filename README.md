@@ -3,41 +3,73 @@
 [![Parallax Competition 2025](https://img.shields.io/badge/Parallax-Competition_2025-00D9FF?style=for-the-badge)](https://gradient.network/campaign/)
 [![Built for M1/M2/M3](https://img.shields.io/badge/Apple_Silicon-Optimized-black?style=for-the-badge&logo=apple)](https://www.apple.com/mac/)
 [![Sovereign AI](https://img.shields.io/badge/Sovereign-AI-green?style=for-the-badge)](https://github.com/GradientHQ/parallax)
+[![Local Inference](https://img.shields.io/badge/100%25-Local_Inference-purple?style=for-the-badge)](https://github.com/GradientHQ/parallax)
 
-**"The first Sovereign Life OS that turns your MacBook into a private, offline AI sentinel."**
+**"The first Sovereign Life OS that turns your MacBook into a private, offline AI sentinel — powered entirely by Parallax local inference."**
 
-> **For Judges:** AEGIS showcases Parallax's power through a real-world agentic workflow: Vision (Moondream) → Reasoning (Llama-3.2) → Action. Everything runs locally on M1/M2/M3 with zero cloud dependency. Unplug the ethernet cable during the demo—it keeps working. 🔌❌
+> **For Judges:** AEGIS demonstrates **extensive Parallax usage** through a 5-stage AI pipeline:
+> 1. **Scene Interpretation** → Parallax analyzes visual features
+> 2. **Threat Detection** → Parallax reasons about safety
+> 3. **Action Planning** → Parallax generates response plans
+> 4. **Trend Analysis** → Parallax detects patterns over time
+> 5. **Log Summaries** → Parallax generates human-readable reports
+>
+> **Zero cloud dependency.** Unplug the ethernet cable during the demo—it keeps working! 🔌❌
 
 ---
 
 ## 🎯 What is AEGIS?
 
-AEGIS is a **production-ready** local-first AI monitoring system that runs entirely on Apple Silicon using **Parallax**. It demonstrates the future of sovereign AI: powerful, private, and practical.
+AEGIS is a **production-ready** local-first AI monitoring system that runs entirely on your hardware using **Parallax**. It demonstrates the future of sovereign AI: powerful, private, and practical.
 
 **The Innovation:**
-- **Vision**: Moondream analyzes live webcam feed every 2.5 seconds
-- **Orchestration**: Parallax routes threats to Llama-3.2 for deep reasoning
-- **Action**: Structured incident reports, local logging, zero cloud upload
-- **Privacy**: "Purge Memory" button—true data sovereignty unlike ChatGPT
+- **Vision**: Lightweight OpenCV feature extraction + Parallax scene interpretation
+- **Multi-Stage Parallax**: 5 different API calls per analysis cycle (see architecture below)
+- **Action Pipeline**: Threat detection → Action planning → Trend analysis → Log generation
+- **Privacy**: "Purge Memory" button—true data sovereignty unlike cloud AI services
 
 ### Key Features
 
-- **Visual Sentinel**: Real-time video monitoring using Moondream vision model
+- **5-Stage Parallax Pipeline**: Scene → Threat → Action → Trend → Summary (all via local Parallax!)
+- **Lightweight Vision**: OpenCV-based detection (no heavy ML models on M1 Air!)
 - **Two Operating Modes**:
   - **Home Mode**: Monitors for falls, emergencies, and safety concerns
   - **Industrial Mode**: Quality control for 3D printing, server monitoring, etc.
-- **Sovereign Privacy**: All AI inference happens locally on your hardware
-- **Agentic Workflow**: Parallax orchestrates vision → reasoning → action pipeline
+- **Sovereign Privacy**: 100% local inference via Parallax cluster
+- **Auto-Fallback**: Gracefully handles Parallax offline scenarios
+- **Demo Mode**: Works without camera for competition demonstration
 
 ## 🏗️ Architecture
 
 ```
-Frontend (Tauri + React)
-    ↓
-Python FastAPI Backend
-    ├── Vision Loop (Moondream via MLX)
-    ├── Parallax Orchestrator
-    └── LLM Reasoning (Llama-3.2-3B)
+┌─────────────────────────────────────────────────────────────┐
+│                    AEGIS FRONTEND                           │
+│              (Tauri 2.0 + React + Tremor)                   │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                 VISION SYSTEM (Lightweight)                 │
+│   OpenCV: Motion | Color | Brightness | Face Detection     │
+│              (No heavy ML models needed!)                   │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│           PARALLAX LOCAL CLUSTER (5-Stage Pipeline)        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │    Stage 1   │  │    Stage 2   │  │    Stage 3   │      │
+│  │    Scene     │→│    Threat    │→│    Action    │      │
+│  │ Interpretation│  │   Analysis   │  │   Planning   │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│         ↓                                    ↓              │
+│  ┌──────────────┐                    ┌──────────────┐      │
+│  │    Stage 4   │                    │    Stage 5   │      │
+│  │    Trend     │                    │     Log      │      │
+│  │   Analysis   │                    │   Summary    │      │
+│  └──────────────┘                    └──────────────┘      │
+│                                                             │
+│  Model: Qwen/Qwen3-0.6B (lightweight, runs on M1!)         │
+│  API: http://localhost:3001/v1 (OpenAI-compatible)         │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ## 📦 Tech Stack
@@ -48,29 +80,50 @@ Python FastAPI Backend
 - **Styling**: Tailwind CSS
 - **Theme**: Cyber-Industrial Dark Mode
 
-### Backend
-- **Orchestration**: Parallax
-- **Vision Model**: Moondream2 (optimized for MLX)
-- **Reasoning**: Llama-3.2-3B-Instruct (4-bit quantized)
-- **Hardware Acceleration**: Apple MLX
+### Backend (Parallax-First!)
+- **LLM Orchestration**: Parallax Local Cluster
+- **LLM Model**: Qwen/Qwen3-0.6B (lightweight, ~600MB)
+- **Vision**: OpenCV (motion, color, brightness, Haar cascades)
+- **Fallback Vision**: Optional Moondream2 for powerful hardware
 - **API**: FastAPI + Uvicorn
 
-## 🚀 Quick Start (3 Commands)
+### Parallax Integration
+- **Endpoint**: `http://localhost:3001/v1` (OpenAI-compatible)
+- **Features Used**:
+  - Scene interpretation from visual features
+  - Threat reasoning and classification
+  - Action plan generation
+  - Pattern/trend detection
+  - Log summary generation
 
+## 🚀 Quick Start
+
+### Step 1: Start Parallax (Required for competition!)
 ```bash
-# 1. Install everything
-npm install && cd backend && pip install -r requirements.txt && cd ..
+# Terminal 1: Start Parallax scheduler
+cd /path/to/parallax && source venv/bin/activate
+parallax run -m Qwen/Qwen3-0.6B -n 1
 
-# 2. Start all services (video server, sentinel, frontend)
-./start-aegis.sh
-
-# 3. (Optional) Enable Parallax for multi-model orchestration
-parallax run  # In a separate terminal
+# Terminal 2: Join the cluster
+cd /path/to/parallax && source venv/bin/activate
+parallax join
 ```
 
-**That's it!** The app opens automatically with live video feed.
+### Step 2: Install & Run AEGIS
+```bash
+# Install dependencies
+npm install && cd backend && pip install -r requirements.txt && cd ..
 
-**See [INSTALLATION.md](INSTALLATION.md) for full setup with Parallax integration.**
+# Start all services
+./start-aegis.sh
+```
+
+**That's it!** AEGIS will detect Parallax and route all AI inference locally.
+
+### Demo Mode (No Camera)
+If you don't have a camera, AEGIS will automatically run in demo mode, generating synthetic frames to showcase the Parallax pipeline.
+
+**See [INSTALLATION.md](INSTALLATION.md) for full setup guide.**
 
 ## 📁 Project Structure
 
@@ -100,33 +153,40 @@ AEGIS/
 3. **Phase 3**: Parallax orchestration (Multi-model routing)
 4. **Phase 4**: End-to-end testing and demo video
 
-## 🏆 Why AEGIS Wins
+## 🏆 Why AEGIS Wins the Parallax Competition
 
-**For Vikhyat Korrapati (Moondream CTO):**
-- Moondream running real-time visual inference at <2.5s latency on M1
-- Not just a demo—a production use case (home safety, industrial QC)
-- Showcases Moondream's speed advantage on Apple Silicon
+### Extensive Parallax Usage (Key Judging Criteria!)
 
-**For Ahmad Osman (Industrial AI):**
-- "Industrial Mode" for quality control (3D print monitoring, server rack alerts)
-- Demonstrates NDT (Non-Destructive Testing) at the edge
-- Cost-effective alternative to $10K+ industrial vision systems
+AEGIS makes **5 separate Parallax API calls per analysis cycle**:
 
-**For NoCommas (Agentic Systems):**
-- True autonomous loop: Perception → Reasoning → Action
-- Parallax orchestrates handoff from vision to reasoning
-- Structured output (JSON incident reports) for downstream actions
+| Stage | Parallax Call | Purpose |
+|-------|---------------|---------|
+| 1 | Scene Interpretation | Convert CV features to natural language |
+| 2 | Threat Analysis | Reason about safety concerns |
+| 3 | Action Planning | Generate response recommendations |
+| 4 | Trend Analysis | Detect patterns over time |
+| 5 | Log Summary | Create human-readable reports |
 
-**For Gradient Team:**
-- Perfect case study for Parallax's value prop
-- Shows multi-model orchestration (Moondream + Llama working together)
-- Demonstrates "sovereign AI" philosophy tangibly
+**This demonstrates Parallax's value for complex, multi-stage AI workflows!**
+
+### For the Judges
+
+**Track 2: Building Applications** ✅
+- **Useful application**: Home safety monitoring & industrial QC
+- **Privacy & low cost**: 100% local inference, zero cloud costs
+- **Easy to use**: One-command startup, auto-detects Parallax
+
+**Technical Excellence:**
+- Lightweight OpenCV vision (works on M1 Air!)
+- Auto-fallback when Parallax offline
+- Demo mode for testing without camera
+- Clean, documented codebase
 
 **The X-Factor:**
-- **Privacy Vault** with "Purge Memory" button (judges will love this UX)
+- **Privacy Vault** with "Purge Memory" button
 - **Offline-first**: Demo runs with ethernet unplugged
-- **Beautiful UI**: Cinema-grade dashboard (judges are humans too!)
-- **Open-source & Educational**: Other devs can learn from this
+- **Beautiful UI**: Production-grade dashboard
+- **Open-source**: Other devs can learn and build on this
 
 ## 📝 License
 

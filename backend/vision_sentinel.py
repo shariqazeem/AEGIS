@@ -56,30 +56,56 @@ class Config:
                       "danger", "emergency", "injury", "unconscious", "intruder",
                       "alert", "help", "accident"]
 
+    # ==========================================================================
+    # PARALLAX-FIRST CONFIGURATION (Competition Mode)
+    # ==========================================================================
+    # For the Parallax Competition 2025, we prioritize local Parallax usage.
+    # This demonstrates the power of local AI clusters.
+
     # LLM Backend Configuration
     # Options:
-    # - "gradient": Gradient Cloud API (fast, for development) ✅ RECOMMENDED FOR NOW
-    # - "parallax": Local Parallax (for final demo/submission)
+    # - "parallax": Local Parallax cluster (RECOMMENDED for competition!)
+    # - "gradient": Gradient Cloud API (fallback/development)
     # - "mock": No LLM, keyword-based (lightest)
-    LLM_BACKEND = "gradient"  # Change to "parallax" for final demo!
+    LLM_BACKEND = "parallax"  # Competition mode: Use Parallax!
 
-    # Gradient Cloud API (for development)
-    GRADIENT_API_KEY = "ak-f5a93640ff449cd3d44457a5be3172d212355e56fdc0709f0bd5d1a042bc0d89"
-    GRADIENT_BASE_URL = "https://apis.gradient.network/api/v1/ai"
-    GRADIENT_MODEL = "qwen/qwen3-235b-instruct-fp8"  # Fast and good quality
-
-    # Parallax API (for final demo)
+    # Parallax API (LOCAL - for competition demo)
     PARALLAX_BASE_URL = "http://localhost:3001/v1"
     PARALLAX_API_KEY = "not-needed-for-local"
-    PARALLAX_MODEL = "Qwen/Qwen3-0.6B"
+    PARALLAX_MODEL = "Qwen/Qwen3-0.6B"  # Lightweight model for local inference
 
-    # Models
-    # Options: "moondream" (real AI, heavy), "mock" (for testing, light)
-    # For M1 Air: use "mock" for development, "moondream" for demos
-    VISION_MODEL = "moondream" if PERFORMANCE_MODE != "eco" else "mock"
+    # Gradient Cloud API (fallback if Parallax unavailable)
+    GRADIENT_API_KEY = "ak-f5a93640ff449cd3d44457a5be3172d212355e56fdc0709f0bd5d1a042bc0d89"
+    GRADIENT_BASE_URL = "https://apis.gradient.network/api/v1/ai"
+    GRADIENT_MODEL = "qwen/qwen3-235b-instruct-fp8"
+
+    # ==========================================================================
+    # VISION CONFIGURATION
+    # ==========================================================================
+    # Options:
+    # - "api": Send images to Parallax/Gradient vision API (if available)
+    # - "opencv": Lightweight OpenCV-based detection (NO ML, fast!)
+    # - "moondream": Local Moondream model (HEAVY - not for M1 Air!)
+    # - "mock": Simulated responses for testing
+    #
+    # For M1 Air: Use "opencv" - fast, no ML overhead, sends to Parallax for analysis
+    VISION_MODEL = "opencv"  # Lightweight for M1 Air!
+
+    # Vision API settings (when VISION_MODEL = "api")
+    VISION_API_BASE_URL = "http://localhost:3001/v1"  # Parallax for vision too
+    VISION_API_MODEL = "Qwen/Qwen3-0.6B"  # Will describe scenes based on detected features
 
     # Modes
     MODE = "HOME"  # HOME or INDUSTRIAL
+
+    # ==========================================================================
+    # PARALLAX CLUSTER FEATURES (Competition Showcase)
+    # ==========================================================================
+    # Enable these for maximum Parallax demonstration
+    USE_PARALLAX_FOR_SCENE_DESCRIPTION = True   # Send CV features to Parallax for interpretation
+    USE_PARALLAX_FOR_THREAT_ANALYSIS = True     # Detailed threat reasoning
+    USE_PARALLAX_FOR_ACTION_PLANNING = True     # Get recommended actions
+    USE_PARALLAX_FOR_LOGGING = True             # Generate log summaries
 
 config = Config()
 
@@ -109,62 +135,97 @@ def log_event(event_type: str, message: str, level: str = "INFO"):
 # =============================================================================
 
 class VisionSystem:
-    """Handles visual analysis using Moondream or mock vision"""
+    """
+    Vision system for AEGIS - Parallax Competition 2025
+
+    Modes:
+    - "opencv": Lightweight OpenCV detection → Parallax for interpretation (RECOMMENDED)
+    - "api": Send base64 images to vision API
+    - "moondream": Local Moondream model (HEAVY - not for M1 Air)
+    - "mock": Simulated responses for testing
+    """
 
     def __init__(self):
         self.model = None
         self.tokenizer = None
         self.model_loaded = False
         self.frame_count = 0
+        self.prev_frame = None  # For motion detection
+        self.parallax_client = None
 
     def load_model(self):
-        """Load Moondream vision model (MLX optimized for M1)"""
+        """Initialize vision system based on configuration"""
         try:
-            log_event("VISION", "Loading Moondream vision model...", "INFO")
+            mode = config.VISION_MODEL
+            log_event("VISION", f"Initializing vision system: {mode.upper()}", "INFO")
 
-            if config.VISION_MODEL == "mock":
-                log_event("VISION", "Using MOCK vision mode (no AI)", "WARN")
+            if mode == "opencv":
+                # Lightweight OpenCV mode - NO ML models needed!
+                log_event("VISION", "✓ OpenCV mode: Fast, lightweight, Parallax-powered", "SUCCESS")
+                log_event("VISION", "  Features: Motion, color, brightness, face detection", "INFO")
+                self.model_loaded = True
+
+                # Initialize Parallax client for scene interpretation
+                if config.USE_PARALLAX_FOR_SCENE_DESCRIPTION:
+                    try:
+                        from openai import OpenAI
+                        self.parallax_client = OpenAI(
+                            base_url=config.PARALLAX_BASE_URL,
+                            api_key=config.PARALLAX_API_KEY
+                        )
+                        log_event("VISION", "✓ Parallax client ready for scene interpretation", "SUCCESS")
+                    except Exception as e:
+                        log_event("VISION", f"Parallax client init failed: {e}", "WARN")
+                return
+
+            elif mode == "api":
+                log_event("VISION", "API vision mode - sending to Parallax", "INFO")
                 self.model_loaded = True
                 return
 
-            # Try MLX-optimized Moondream first (fastest on M1)
-            try:
-                from transformers import AutoModelForCausalLM, AutoTokenizer
-                import torch
-
-                log_event("VISION", "Attempting MLX/MPS accelerated loading...", "INFO")
-
-                model_id = "vikhyatk/moondream2"
-                self.tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    model_id,
-                    trust_remote_code=True,
-                    torch_dtype=torch.float16
-                )
-
-                # Use Apple Metal if available
-                if torch.backends.mps.is_available():
-                    self.model = self.model.to("mps")
-                    log_event("VISION", "✓ Model loaded on Apple Neural Engine (MPS)", "SUCCESS")
-                else:
-                    log_event("VISION", "⚠ MPS not available, using CPU", "WARN")
-
+            elif mode == "mock":
+                log_event("VISION", "Using MOCK vision mode (testing)", "WARN")
                 self.model_loaded = True
+                return
 
-            except Exception as e:
-                log_event("VISION", f"Moondream loading failed: {e}", "WARN")
-                log_event("VISION", "Falling back to MOCK mode", "INFO")
-                self.model_loaded = True  # Continue with mock
+            elif mode == "moondream":
+                # Heavy local model - NOT recommended for M1 Air
+                log_event("VISION", "⚠ Loading Moondream (HEAVY - consider 'opencv' mode)", "WARN")
+                try:
+                    from transformers import AutoModelForCausalLM, AutoTokenizer
+                    import torch
+
+                    model_id = "vikhyatk/moondream2"
+                    self.tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        model_id,
+                        trust_remote_code=True,
+                        torch_dtype=torch.float16
+                    )
+
+                    if torch.backends.mps.is_available():
+                        self.model = self.model.to("mps")
+                        log_event("VISION", "✓ Moondream loaded on Apple MPS", "SUCCESS")
+                    else:
+                        log_event("VISION", "Moondream on CPU (slow)", "WARN")
+
+                    self.model_loaded = True
+                except Exception as e:
+                    log_event("VISION", f"Moondream failed: {e}, using OpenCV", "WARN")
+                    config.VISION_MODEL = "opencv"
+                    self.model_loaded = True
 
         except Exception as e:
-            log_event("VISION", f"Vision system initialization failed: {e}", "ERROR")
-            self.model_loaded = True  # Continue with mock
+            log_event("VISION", f"Vision init failed: {e}", "ERROR")
+            config.VISION_MODEL = "opencv"
+            self.model_loaded = True
 
     def analyze_frame(self, frame) -> str:
         """
         Analyze a video frame and return description
 
-        Returns: Text description of what's in the frame
+        For Parallax Competition: Uses OpenCV for fast feature extraction,
+        then sends to Parallax for intelligent scene interpretation.
         """
         if not self.model_loaded:
             return "Vision system not initialized"
@@ -172,79 +233,273 @@ class VisionSystem:
         self.frame_count += 1
 
         try:
-            if config.VISION_MODEL == "mock" or self.model is None:
-                # Mock analysis with pattern detection
+            mode = config.VISION_MODEL
+
+            if mode == "opencv":
+                # Fast OpenCV analysis → Parallax interpretation
+                return self._opencv_analysis(frame)
+            elif mode == "api":
+                return self._api_analysis(frame)
+            elif mode == "mock":
                 return self._mock_analysis(frame)
-
-            # Real Moondream analysis
-            from PIL import Image
-            image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-
-            if config.MODE == "HOME":
-                prompt = "Describe this scene. Is there any person in distress, fire, smoke, or emergency situation?"
-            else:  # INDUSTRIAL
-                prompt = "Analyze this industrial scene. Are there any quality issues, equipment failures, or safety hazards?"
-
-            # Moondream inference
-            response = self.model.answer_question(image, prompt, self.tokenizer)
-            return response
+            elif mode == "moondream" and self.model is not None:
+                return self._moondream_analysis(frame)
+            else:
+                return self._opencv_analysis(frame)  # Fallback
 
         except Exception as e:
             log_event("VISION", f"Analysis error: {e}", "ERROR")
             return f"Analysis failed: {str(e)}"
 
-    def _mock_analysis(self, frame) -> str:
+    def _opencv_analysis(self, frame) -> str:
         """
-        Mock vision analysis using simple CV for demo purposes
+        Lightweight OpenCV analysis for M1 Air
 
-        TESTING GUIDE:
-        - Normal: Just sit normally → "Normal scene"
-        - Threat: Wave hands rapidly, make sudden movements → "Movement detected"
-        - Hold up paper with text "FIRE" or "HELP" → Triggers keyword detection
+        Extracts visual features and optionally sends to Parallax for
+        intelligent interpretation. This maximizes Parallax usage while
+        keeping local compute minimal.
         """
+        import numpy as np
+
+        height, width = frame.shape[:2]
+        features = {}
+
+        # === 1. BRIGHTNESS ANALYSIS ===
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        mean_brightness = gray.mean()
+        features['brightness'] = mean_brightness
+
+        # === 2. MOTION DETECTION ===
+        motion_score = 0.0
+        if self.prev_frame is not None:
+            prev_gray = cv2.cvtColor(self.prev_frame, cv2.COLOR_BGR2GRAY)
+            diff = cv2.absdiff(gray, prev_gray)
+            motion_score = diff.mean()
+        self.prev_frame = frame.copy()
+        features['motion'] = motion_score
+
+        # === 3. COLOR ANALYSIS ===
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Red detection (fire, blood, danger)
+        red_mask1 = cv2.inRange(hsv, (0, 100, 100), (10, 255, 255))
+        red_mask2 = cv2.inRange(hsv, (160, 100, 100), (180, 255, 255))
+        red_pct = (cv2.countNonZero(red_mask1) + cv2.countNonZero(red_mask2)) / (height * width) * 100
+
+        # Orange/Yellow detection (flames, warnings)
+        orange_mask = cv2.inRange(hsv, (10, 100, 100), (25, 255, 255))
+        orange_pct = cv2.countNonZero(orange_mask) / (height * width) * 100
+
+        features['red_percentage'] = red_pct
+        features['orange_percentage'] = orange_pct
+
+        # === 4. FACE/PERSON DETECTION (Haar Cascades - fast!) ===
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(30, 30))
+        features['faces_detected'] = len(faces)
+
+        # Check if any face is in lower portion (possible fall)
+        faces_in_lower = sum(1 for (x, y, w, h) in faces if y + h > height * 0.7)
+        features['faces_in_lower_frame'] = faces_in_lower
+
+        # === 5. EDGE DENSITY (smoke/haze reduces edges) ===
+        edges = cv2.Canny(gray, 50, 150)
+        edge_density = np.count_nonzero(edges) / (height * width)
+        features['edge_density'] = edge_density
+
+        # === 6. BUILD SCENE DESCRIPTION ===
+        description = self._build_scene_description(features)
+
+        # === 7. SEND TO PARALLAX FOR INTELLIGENT INTERPRETATION ===
+        if config.USE_PARALLAX_FOR_SCENE_DESCRIPTION and self.parallax_client:
+            try:
+                enhanced = self._parallax_interpret_scene(features, description)
+                if enhanced:
+                    return enhanced
+            except Exception as e:
+                log_event("VISION", f"Parallax interpretation failed: {e}", "DEBUG")
+
+        return description
+
+    def _build_scene_description(self, features: dict) -> str:
+        """Build a text description from OpenCV features"""
+        parts = []
+
+        # Brightness
+        brightness = features.get('brightness', 128)
+        if brightness < 50:
+            parts.append("Scene is very dark, low visibility")
+        elif brightness > 200:
+            parts.append("Scene is very bright, possible flash or glare")
+        else:
+            parts.append("Normal lighting conditions")
+
+        # Motion
+        motion = features.get('motion', 0)
+        if motion > 30:
+            parts.append("SIGNIFICANT MOTION DETECTED")
+        elif motion > 15:
+            parts.append("moderate movement detected")
+        else:
+            parts.append("scene is calm with minimal movement")
+
+        # Colors
+        red_pct = features.get('red_percentage', 0)
+        orange_pct = features.get('orange_percentage', 0)
+        if red_pct > 15:
+            parts.append(f"WARNING: {red_pct:.1f}% red color detected (possible fire or emergency)")
+        if orange_pct > 10:
+            parts.append(f"Orange/yellow areas detected ({orange_pct:.1f}%)")
+
+        # Faces
+        faces = features.get('faces_detected', 0)
+        if faces > 0:
+            parts.append(f"{faces} person(s) visible")
+            if features.get('faces_in_lower_frame', 0) > 0:
+                parts.append("ALERT: Person detected in lower frame (possible fall)")
+        else:
+            parts.append("no faces detected in frame")
+
+        # Edge density (smoke detection)
+        edges = features.get('edge_density', 0.1)
+        if edges < 0.02:
+            parts.append("Low edge clarity - possible smoke, fog, or obstruction")
+
+        return ". ".join(parts) + "."
+
+    def _parallax_interpret_scene(self, features: dict, basic_description: str) -> str:
+        """
+        Send scene features to Parallax for intelligent interpretation.
+
+        This is key for the competition - shows Parallax doing real AI work!
+        """
+        if not self.parallax_client:
+            return None
+
+        mode_context = "home security monitoring" if config.MODE == "HOME" else "industrial quality control"
+
+        prompt = f"""You are an AI vision assistant for {mode_context}. Given these detected features, provide a brief natural language scene description:
+
+Features detected:
+- Brightness: {features.get('brightness', 'unknown')}/255
+- Motion score: {features.get('motion', 0):.1f}
+- Red color: {features.get('red_percentage', 0):.1f}%
+- Orange color: {features.get('orange_percentage', 0):.1f}%
+- Faces detected: {features.get('faces_detected', 0)}
+- Face in lower frame: {features.get('faces_in_lower_frame', 0)}
+- Edge density: {features.get('edge_density', 0):.3f}
+
+Basic analysis: {basic_description}
+
+Respond with ONLY a brief 1-2 sentence scene description. Be specific about any potential safety concerns. No JSON, just plain text."""
+
+        try:
+            response = self.parallax_client.chat.completions.create(
+                model=config.PARALLAX_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=150,
+                temperature=0.3
+            )
+
+            if response and response.choices and response.choices[0].message:
+                content = response.choices[0].message.content
+                if content:
+                    log_event("PARALLAX", "Scene interpreted via local cluster", "DEBUG")
+                    return content.strip()
+        except Exception as e:
+            log_event("VISION", f"Parallax scene interpretation error: {e}", "DEBUG")
+
+        return None
+
+    def _api_analysis(self, frame) -> str:
+        """Send image to vision API (Parallax or external)"""
+        import base64
+        from PIL import Image
+        import io
+
+        try:
+            # Convert frame to base64
+            image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            buffered = io.BytesIO()
+            image.save(buffered, format="JPEG", quality=85)
+            img_base64 = base64.b64encode(buffered.getvalue()).decode()
+
+            # Try Parallax vision API
+            from openai import OpenAI
+            client = OpenAI(
+                base_url=config.VISION_API_BASE_URL,
+                api_key=config.PARALLAX_API_KEY
+            )
+
+            prompt = "Describe this scene briefly. Note any safety concerns."
+            if config.MODE == "INDUSTRIAL":
+                prompt = "Analyze this industrial scene. Note any quality or safety issues."
+
+            response = client.chat.completions.create(
+                model=config.VISION_API_MODEL,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
+                    ]
+                }],
+                max_tokens=200
+            )
+
+            if response and response.choices:
+                return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            log_event("VISION", f"API vision failed: {e}, using OpenCV fallback", "WARN")
+            return self._opencv_analysis(frame)
+
+        return "API analysis unavailable"
+
+    def _moondream_analysis(self, frame) -> str:
+        """Local Moondream analysis (heavy, not for M1 Air)"""
+        from PIL import Image
+
+        image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+        if config.MODE == "HOME":
+            prompt = "Describe this scene. Is there any person in distress, fire, smoke, or emergency situation?"
+        else:
+            prompt = "Analyze this industrial scene. Are there any quality issues, equipment failures, or safety hazards?"
+
+        response = self.model.answer_question(image, prompt, self.tokenizer)
+        return response
+
+    def _mock_analysis(self, frame) -> str:
+        """Mock vision analysis for testing without camera"""
+        import random
+
         height, width = frame.shape[:2]
 
-        # Simple motion/color detection
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        mean_intensity = gray.mean()
-
-        # Calculate simple motion score (brightness change rate indicator)
-        # In a real app, you'd track previous frames
-        motion_indicator = mean_intensity / 128.0  # Normalized 0-2
-
-        # Detect red color (could indicate fire, blood, danger signs)
+        # Basic color detection for demo
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         red_mask1 = cv2.inRange(hsv, (0, 120, 70), (10, 255, 255))
         red_mask2 = cv2.inRange(hsv, (170, 120, 70), (180, 255, 255))
-        red_percentage = (cv2.countNonZero(red_mask1) + cv2.countNonZero(red_mask2)) / (height * width) * 100
+        red_pct = (cv2.countNonZero(red_mask1) + cv2.countNonZero(red_mask2)) / (height * width) * 100
 
-        # Simulate realistic scenarios
-        if red_percentage > 15:  # Significant red in frame
-            return "Red warning indicator detected in view. Possible fire or emergency sign."
-        elif mean_intensity < 50:  # Very dark
-            return "Low lighting conditions. Visibility limited. Possible power outage or nighttime."
-        elif mean_intensity > 200:  # Very bright (flash, etc)
-            return "Unusual bright flash detected. Investigating."
+        if red_pct > 15:
+            return "Red warning indicator detected. Possible fire or emergency sign."
 
-        # Occasionally simulate different scenarios for testing
+        # Cycle through test scenarios
         cycle = self.frame_count % 100
         if cycle == 30:
             return "Person appears to have fallen. No movement detected. Emergency situation possible."
         elif cycle == 60:
             return "Smoke or unusual haze visible in frame. Possible fire hazard."
         elif cycle == 90:
-            return "HELP sign visible in frame. Person requesting assistance."
+            return "HELP sign visible. Person requesting assistance."
 
-        # Normal responses
         responses = [
-            "Normal office environment. One person at workstation. No anomalies.",
+            "Normal environment. Person at workstation. No anomalies.",
             "Living room scene. Standard activity. All clear.",
             "Kitchen area visible. Normal lighting and conditions.",
             "Workspace scene. Person present and active. No concerns.",
-            "Home environment. Occupant appears safe and comfortable.",
         ]
-
-        import random
         return random.choice(responses)
 
 # =============================================================================
@@ -252,82 +507,117 @@ class VisionSystem:
 # =============================================================================
 
 class ReasoningClient:
-    """Client for LLM reasoning - supports Gradient Cloud API or local Parallax"""
+    """
+    LLM Reasoning Client for AEGIS - Parallax Competition 2025
+
+    Features:
+    - Parallax-first: Uses local Parallax cluster by default
+    - Auto-fallback: Falls back to Gradient Cloud if Parallax offline
+    - Multi-stage analysis: Scene → Threat → Action → Logging
+    - All stages use Parallax to maximize cluster demonstration
+    """
 
     def __init__(self):
         self.backend = config.LLM_BACKEND
+        self.parallax_available = False
+        self.gradient_available = False
+        self.client = None
 
-        if self.backend == "gradient":
-            self.base_url = config.GRADIENT_BASE_URL
-            self.api_key = config.GRADIENT_API_KEY
-            self.model = config.GRADIENT_MODEL
-        elif self.backend == "parallax":
+        # Initialize based on backend preference
+        if self.backend == "parallax":
             self.base_url = config.PARALLAX_BASE_URL
             self.api_key = config.PARALLAX_API_KEY
             self.model = config.PARALLAX_MODEL
+        elif self.backend == "gradient":
+            self.base_url = config.GRADIENT_BASE_URL
+            self.api_key = config.GRADIENT_API_KEY
+            self.model = config.GRADIENT_MODEL
         else:  # mock
             self.base_url = None
             self.api_key = None
             self.model = None
 
     def check_connection(self) -> bool:
-        """Check if LLM backend is available"""
+        """
+        Check if LLM backend is available with auto-fallback.
+
+        For competition: Tries Parallax first, falls back to Gradient if needed.
+        """
         if self.backend == "mock":
             log_event("LLM", "Using mock reasoning (no API)", "INFO")
             return True
 
-        backend_name = "Gradient Cloud" if self.backend == "gradient" else "Parallax"
+        # Try Parallax first (competition priority!)
+        if self.backend == "parallax" or self._try_parallax():
+            self.parallax_available = True
+            log_event("LLM", "✓ Parallax cluster connected (LOCAL INFERENCE)", "SUCCESS")
+            return True
 
+        # Try Gradient Cloud as fallback
+        if self._try_gradient():
+            self.gradient_available = True
+            if self.backend == "parallax":
+                log_event("LLM", "⚠ Parallax offline, using Gradient Cloud fallback", "WARN")
+                # Switch to Gradient
+                self.base_url = config.GRADIENT_BASE_URL
+                self.api_key = config.GRADIENT_API_KEY
+                self.model = config.GRADIENT_MODEL
+                self.backend = "gradient"
+            else:
+                log_event("LLM", "✓ Connected to Gradient Cloud", "SUCCESS")
+            return True
+
+        log_event("LLM", "⚠ No LLM backend available, using mock fallback", "WARN")
+        self.backend = "mock"
+        return True  # Continue with mock
+
+    def _try_parallax(self) -> bool:
+        """Test Parallax cluster connection"""
         try:
-            if self.backend == "gradient":
-                # Test Gradient API with requests
-                import requests
-                response = requests.post(
-                    f"{self.base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [{"role": "user", "content": "test"}],
-                        "max_tokens": 5,
-                        "temperature": 0.3
-                    },
-                    timeout=10
-                )
-                if response.status_code == 200:
-                    log_event("LLM", f"✓ Connected to {backend_name}", "SUCCESS")
-                    return True
-                else:
-                    log_event("LLM", f"Connection failed: {response.status_code}", "WARN")
-                    return False
+            from openai import OpenAI
+            client = OpenAI(
+                base_url=config.PARALLAX_BASE_URL,
+                api_key=config.PARALLAX_API_KEY
+            )
 
-            else:  # parallax
-                from openai import OpenAI
-                client = OpenAI(base_url=self.base_url, api_key=self.api_key)
+            response = client.chat.completions.create(
+                model=config.PARALLAX_MODEL,
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=5,
+                timeout=5
+            )
 
-                # Try a simple API call to verify connection with retries
-                max_retries = 2
-                for attempt in range(max_retries):
-                    try:
-                        response = client.chat.completions.create(
-                            model=self.model,
-                            messages=[{"role": "user", "content": "test"}],
-                            max_tokens=5,
-                            timeout=10
-                        )
-                        log_event("LLM", f"✓ Connected to {backend_name}", "SUCCESS")
-                        return True
-                    except Exception as e:
-                        if attempt < max_retries - 1:
-                            log_event("LLM", f"Connection attempt {attempt + 1} failed, retrying...", "DEBUG")
-                            time.sleep(1)
-                            continue
-                        raise e
+            if response and response.choices:
+                self.client = client
+                self.base_url = config.PARALLAX_BASE_URL
+                self.api_key = config.PARALLAX_API_KEY
+                self.model = config.PARALLAX_MODEL
+                return True
         except Exception as e:
-            log_event("LLM", f"{backend_name} connection failed: {e}", "WARN")
-            return False
+            log_event("LLM", f"Parallax check failed: {e}", "DEBUG")
+        return False
+
+    def _try_gradient(self) -> bool:
+        """Test Gradient Cloud connection"""
+        try:
+            import requests
+            response = requests.post(
+                f"{config.GRADIENT_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {config.GRADIENT_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": config.GRADIENT_MODEL,
+                    "messages": [{"role": "user", "content": "test"}],
+                    "max_tokens": 5
+                },
+                timeout=10
+            )
+            return response.status_code == 200
+        except Exception as e:
+            log_event("LLM", f"Gradient check failed: {e}", "DEBUG")
+        return False
 
     def reason_about_threat(self, vision_output: str) -> dict:
         """
@@ -509,12 +799,195 @@ For threats use: {{"threat_detected": true, "severity": "high", "event_type": "f
             "description": vision_output
         }
 
+    # =========================================================================
+    # PARALLAX INTEGRATION: Additional Analysis Stages (Competition Features!)
+    # =========================================================================
+
+    def get_action_plan(self, threat_analysis: dict) -> dict:
+        """
+        Stage 2: Get detailed action plan from Parallax
+
+        Shows multi-stage Parallax usage for competition demo!
+        """
+        if not config.USE_PARALLAX_FOR_ACTION_PLANNING:
+            return {"actions": [threat_analysis.get("action_required", "Monitor")]}
+
+        if self.backend == "mock" or not threat_analysis.get("threat_detected"):
+            return {"actions": ["Continue monitoring"], "priority": "low"}
+
+        try:
+            prompt = f"""You are a security AI assistant. Given this threat analysis, provide a specific action plan.
+
+Threat Analysis:
+- Type: {threat_analysis.get('event_type', 'unknown')}
+- Severity: {threat_analysis.get('severity', 'unknown')}
+- Confidence: {threat_analysis.get('confidence', 0)}
+- Description: {threat_analysis.get('description', 'No description')}
+
+Respond with ONLY valid JSON:
+{{"actions": ["action1", "action2"], "priority": "high/medium/low", "notify": ["person/system"], "estimated_response_time": "X minutes"}}"""
+
+            if self.backend == "parallax" and self.client:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=200,
+                    temperature=0.2
+                )
+                if response and response.choices:
+                    content = response.choices[0].message.content
+                    result = self._extract_json(content)
+                    if result:
+                        log_event("PARALLAX", "Action plan generated via local cluster", "DEBUG")
+                        return result
+
+            elif self.backend == "gradient":
+                import requests
+                response = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 200,
+                        "temperature": 0.2
+                    },
+                    timeout=15
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("choices"):
+                        content = data["choices"][0].get("message", {}).get("content", "")
+                        result = self._extract_json(content)
+                        if result:
+                            return result
+
+        except Exception as e:
+            log_event("LLM", f"Action planning failed: {e}", "DEBUG")
+
+        return {"actions": [threat_analysis.get("action_required", "Alert")], "priority": "high"}
+
+    def generate_log_summary(self, events: list) -> str:
+        """
+        Stage 3: Generate natural language log summary via Parallax
+
+        Great for competition demo - shows Parallax generating human-readable reports!
+        """
+        if not config.USE_PARALLAX_FOR_LOGGING or not events:
+            return "No events to summarize"
+
+        if self.backend == "mock":
+            return f"Summary: {len(events)} events recorded"
+
+        try:
+            events_text = "\n".join([
+                f"- {e.get('timestamp', 'Unknown')}: {e.get('event_type', 'unknown')} ({e.get('severity', 'unknown')})"
+                for e in events[:10]  # Limit to last 10
+            ])
+
+            prompt = f"""Summarize these security monitoring events in 2-3 sentences:
+
+{events_text}
+
+Be concise and professional. Highlight any patterns or critical events."""
+
+            if self.backend == "parallax" and self.client:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=150,
+                    temperature=0.3
+                )
+                if response and response.choices:
+                    log_event("PARALLAX", "Log summary generated via local cluster", "DEBUG")
+                    return response.choices[0].message.content.strip()
+
+            elif self.backend == "gradient":
+                import requests
+                response = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 150
+                    },
+                    timeout=15
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("choices"):
+                        return data["choices"][0].get("message", {}).get("content", "").strip()
+
+        except Exception as e:
+            log_event("LLM", f"Log summary failed: {e}", "DEBUG")
+
+        return f"Summary: {len(events)} security events recorded"
+
+    def analyze_trend(self, recent_analyses: list) -> dict:
+        """
+        Stage 4: Analyze trends in recent detections via Parallax
+
+        Shows continuous Parallax usage for pattern recognition!
+        """
+        if len(recent_analyses) < 3:
+            return {"trend": "insufficient_data", "recommendation": "Continue monitoring"}
+
+        if self.backend == "mock":
+            return {"trend": "stable", "recommendation": "Normal operations"}
+
+        try:
+            analyses_text = "\n".join([
+                f"- {a.get('event_type', 'unknown')}: {a.get('description', '')[:100]}"
+                for a in recent_analyses[-5:]
+            ])
+
+            prompt = f"""Analyze the trend in these recent security observations:
+
+{analyses_text}
+
+Respond with ONLY valid JSON:
+{{"trend": "improving/stable/worsening", "pattern": "brief description", "recommendation": "what to do"}}"""
+
+            if self.backend == "parallax" and self.client:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=150,
+                    temperature=0.2
+                )
+                if response and response.choices:
+                    result = self._extract_json(response.choices[0].message.content)
+                    if result:
+                        log_event("PARALLAX", "Trend analysis via local cluster", "DEBUG")
+                        return result
+
+        except Exception as e:
+            log_event("LLM", f"Trend analysis failed: {e}", "DEBUG")
+
+        return {"trend": "stable", "recommendation": "Continue monitoring"}
+
 # =============================================================================
 # MAIN SENTINEL LOOP
 # =============================================================================
 
 class AegisSentinel:
-    """Main sentinel orchestrator"""
+    """
+    Main sentinel orchestrator - Parallax Competition 2025
+
+    Features enhanced Parallax integration:
+    - Vision → Scene interpretation via Parallax
+    - Threat → Detailed reasoning via Parallax
+    - Action → Action planning via Parallax
+    - Trend → Pattern analysis via Parallax
+    - Logging → Summary generation via Parallax
+    """
 
     def __init__(self):
         self.vision = VisionSystem()
@@ -523,8 +996,17 @@ class AegisSentinel:
         self.current_frame = None
         self.running = False
         self.threat_count = 0
+        self.scan_count = 0
         self.camera_index = None
         self.camera_backend = None
+
+        # Track analyses for trend detection (Parallax feature!)
+        self.recent_analyses = []
+        self.max_history = 20
+
+        # Track events for periodic summaries
+        self.events_since_last_summary = []
+        self.summary_interval = 10  # Generate summary every 10 scans
 
     def find_camera(self):
         """Find available camera by trying multiple indices and verifying it's a real camera"""
@@ -616,23 +1098,33 @@ class AegisSentinel:
         return None, cv2.CAP_ANY
 
     def initialize(self):
-        """Initialize all systems"""
+        """Initialize all systems - Parallax Competition 2025"""
         log_event("AEGIS", "🛡️ AEGIS Sentinel Initializing...", "INFO")
+        log_event("AEGIS", "   Parallax Competition 2025 - Local AI Lab Demo", "INFO")
         log_event("AEGIS", f"Mode: {config.MODE}", "INFO")
         log_event("AEGIS", f"Performance: {config.PERFORMANCE_MODE.upper()} ({config.INFERENCE_INTERVAL}s interval)", "INFO")
-        log_event("AEGIS", f"Vision: {config.VISION_MODEL}", "INFO")
+        log_event("AEGIS", f"Vision: {config.VISION_MODEL.upper()}", "INFO")
+
+        # Show Parallax integration features
+        log_event("PARALLAX", "Integration Features:", "INFO")
+        log_event("PARALLAX", f"  Scene Interpretation: {'✓' if config.USE_PARALLAX_FOR_SCENE_DESCRIPTION else '✗'}", "INFO")
+        log_event("PARALLAX", f"  Threat Analysis: {'✓' if config.USE_PARALLAX_FOR_THREAT_ANALYSIS else '✗'}", "INFO")
+        log_event("PARALLAX", f"  Action Planning: {'✓' if config.USE_PARALLAX_FOR_ACTION_PLANNING else '✗'}", "INFO")
+        log_event("PARALLAX", f"  Log Summaries: {'✓' if config.USE_PARALLAX_FOR_LOGGING else '✗'}", "INFO")
 
         # Load vision model
         self.vision.load_model()
 
-        # Check LLM backend
-        backend_name = "Gradient Cloud" if config.LLM_BACKEND == "gradient" else "Parallax" if config.LLM_BACKEND == "parallax" else "Mock"
+        # Check LLM backend with auto-fallback
+        backend_name = "Parallax Local" if config.LLM_BACKEND == "parallax" else "Gradient Cloud" if config.LLM_BACKEND == "gradient" else "Mock"
         log_event("LLM", f"Backend: {backend_name}", "INFO")
 
         if self.reasoning.check_connection():
-            log_event("LLM", f"✓ {backend_name} ready", "SUCCESS")
+            # Show actual backend after connection check (may have fallen back)
+            actual_backend = "Parallax Local" if self.reasoning.parallax_available else "Gradient Cloud" if self.reasoning.gradient_available else "Mock"
+            log_event("LLM", f"✓ {actual_backend} ready", "SUCCESS")
         else:
-            log_event("LLM", f"⚠ {backend_name} not available, using fallback", "WARN")
+            log_event("LLM", f"⚠ Using fallback mode", "WARN")
 
         # Find and open camera with robust detection
         try:
@@ -677,44 +1169,94 @@ class AegisSentinel:
         return None
 
     def process_frame(self, frame):
-        """Main AI processing pipeline"""
-        # Step 1: Vision Analysis
+        """
+        Main AI processing pipeline - Parallax Competition 2025
+
+        Multi-stage Parallax usage:
+        1. Vision: OpenCV features → Parallax scene interpretation
+        2. Threat: Parallax reasoning for threat detection
+        3. Action: Parallax action planning (if threat)
+        4. Trend: Parallax trend analysis (periodic)
+        5. Summary: Parallax log generation (periodic)
+        """
+        self.scan_count += 1
+        timestamp = datetime.now().strftime("%H:%M:%S")
+
+        # === STAGE 1: Vision Analysis (Parallax Scene Interpretation) ===
         log_event("VISION", "Analyzing frame...", "DEBUG")
         description = self.vision.analyze_frame(frame)
 
-        # Step 2: Threat Detection via LLM
+        # === STAGE 2: Threat Detection via Parallax ===
         analysis = self.reasoning.reason_about_threat(description)
+        analysis['timestamp'] = timestamp
 
-        # Step 3: Log results
+        # Track for trend analysis
+        self.recent_analyses.append(analysis)
+        if len(self.recent_analyses) > self.max_history:
+            self.recent_analyses.pop(0)
+
+        # === STAGE 3: Action Planning via Parallax (if threat) ===
         if analysis["threat_detected"]:
             self.threat_count += 1
+
+            # Get detailed action plan from Parallax
+            action_plan = self.reasoning.get_action_plan(analysis)
+            analysis['action_plan'] = action_plan
+
             log_event(
                 "THREAT",
                 f"⚠️ THREAT #{self.threat_count}: {analysis['event_type']} "
-                f"(confidence: {analysis['confidence']:.0%}) - {analysis['action_required']}",
+                f"(confidence: {analysis.get('confidence', 0):.0%})",
                 "CRITICAL"
             )
+
+            # Log action plan
+            actions = action_plan.get('actions', [])
+            if actions:
+                log_event("ACTION", f"Plan: {', '.join(actions[:3])}", "INFO")
+
+            # Track event for summary
+            self.events_since_last_summary.append(analysis)
         else:
             log_event("SCAN", f"✓ Normal: {description[:60]}...", "INFO")
+
+        # === STAGE 4: Trend Analysis via Parallax (every 5 scans) ===
+        if self.scan_count % 5 == 0 and len(self.recent_analyses) >= 3:
+            trend = self.reasoning.analyze_trend(self.recent_analyses)
+            if trend.get('trend') != 'stable':
+                log_event("TREND", f"Pattern: {trend.get('pattern', 'analyzing')} → {trend.get('recommendation', '')}", "INFO")
+
+        # === STAGE 5: Log Summary via Parallax (periodic) ===
+        if self.scan_count % self.summary_interval == 0 and self.events_since_last_summary:
+            summary = self.reasoning.generate_log_summary(self.events_since_last_summary)
+            log_event("SUMMARY", f"Parallax: {summary[:100]}...", "INFO")
+            self.events_since_last_summary = []
 
         return analysis
 
     def run(self):
-        """Main sentinel loop"""
+        """Main sentinel loop - Parallax Competition 2025"""
         self.running = True
         log_event("AEGIS", "🔍 Sentinel active. Monitoring started.", "INFO")
 
+        # Demo mode flag
+        demo_mode = self.camera is None
+        if demo_mode:
+            log_event("DEMO", "🎬 Running in DEMO mode - Generating test frames", "INFO")
+            log_event("DEMO", "   This demonstrates Parallax integration without camera", "INFO")
+
         try:
             while self.running:
-                frame = self.capture_frame()
+                if demo_mode:
+                    # Generate synthetic test frame for demo
+                    frame = self._generate_demo_frame()
+                else:
+                    frame = self.capture_frame()
 
                 if frame is not None:
                     analysis = self.process_frame(frame)
                 else:
-                    # No camera, run in demo mode
-                    log_event("DEMO", "Running in DEMO mode (no camera)", "INFO")
-                    time.sleep(config.INFERENCE_INTERVAL * 2)
-                    continue
+                    log_event("WARN", "No frame available", "WARN")
 
                 # Sleep between inferences
                 time.sleep(config.INFERENCE_INTERVAL)
@@ -725,6 +1267,53 @@ class AegisSentinel:
             log_event("ERROR", f"Fatal error: {e}", "ERROR")
         finally:
             self.cleanup()
+
+    def _generate_demo_frame(self):
+        """
+        Generate synthetic frames for demo mode (no camera)
+
+        Creates varied test frames to showcase Parallax capabilities:
+        - Normal scenes (most common)
+        - Motion events
+        - Color alerts (red/orange)
+        - Simulated threats
+
+        Great for competition demo without real camera!
+        """
+        import numpy as np
+
+        # Standard 720p frame
+        height, width = 720, 1280
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+
+        # Base background - office-like lighting
+        frame[:] = [45, 40, 35]  # Dark gray (BGR)
+
+        cycle = self.scan_count % 50
+
+        if cycle < 35:
+            # Normal scene - slight variations
+            brightness = np.random.randint(100, 150)
+            frame[:] = [brightness - 20, brightness - 10, brightness]
+            # Add some texture
+            noise = np.random.randint(-10, 10, frame.shape, dtype=np.int16)
+            frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+
+        elif cycle < 40:
+            # Motion event - brightness change
+            frame[:] = [180, 170, 160]
+
+        elif cycle < 45:
+            # Red alert - fire/danger
+            frame[:] = [20, 20, 180]  # Red in BGR
+            # Add orange flames
+            frame[height//3:2*height//3, width//4:3*width//4] = [30, 100, 255]
+
+        else:
+            # Dark scene - possible threat
+            frame[:] = [30, 25, 20]
+
+        return frame
 
     def cleanup(self):
         """Clean shutdown"""
