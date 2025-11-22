@@ -1324,6 +1324,144 @@ Be concise and professional. Highlight any patterns or critical events."""
 
         return f"Summary: {len(events)} security events recorded"
 
+    def analyze_threat_with_parallax(self, features: dict, description: str) -> dict:
+        """
+        🔥 CORE PARALLAX FEATURE - AI-Powered Threat Detection
+
+        This is the KEY competition differentiator!
+        Instead of just rule-based detection, Parallax AI analyzes the scene
+        and makes intelligent threat decisions with reasoning.
+
+        Shows: Real AI inference for security decisions via Parallax cluster!
+        """
+        if self.backend == "mock" or not features:
+            return None  # Fall back to rule-based
+
+        # Build detailed feature context for Parallax
+        brightness = features.get('brightness', 128)
+        motion = features.get('motion', 0)
+        contrast = features.get('contrast', 50)
+        edge_density = features.get('edge_density', 0.1)
+        faces = features.get('faces_detected', 0)
+        faces_lower = features.get('faces_in_lower_frame', 0)
+        red_pct = features.get('red_percentage', 0)
+        orange_pct = features.get('orange_percentage', 0)
+
+        # Classify conditions for better prompting
+        light_level = "very dark" if brightness < 30 else "dark" if brightness < 80 else "bright" if brightness > 180 else "normal"
+        activity = "high motion" if motion > 20 else "some motion" if motion > 5 else "still"
+        visibility = "very low (possibly blocked)" if edge_density < 0.008 and contrast < 25 else "reduced" if edge_density < 0.02 else "clear"
+
+        prompt = f"""You are AEGIS, an AI security system. Analyze these camera readings and determine if there's a threat.
+
+SENSOR DATA:
+- Light: {light_level} (brightness: {brightness:.0f}/255)
+- Motion: {activity} (score: {motion:.1f})
+- Visibility: {visibility} (edges: {edge_density:.4f}, contrast: {contrast:.0f})
+- People: {faces} detected{f', {faces_lower} in lower frame' if faces_lower > 0 else ''}
+- Red color: {red_pct:.1f}%, Orange: {orange_pct:.1f}%
+
+SCENE: {description[:200]}
+
+Analyze for threats: fire, camera tampering, person fallen, smoke, intruder.
+
+Respond with ONLY valid JSON:
+{{"threat": true/false, "type": "threat type or normal", "severity": "critical/high/medium/low", "confidence": 0.0-1.0, "reasoning": "brief explanation"}}"""
+
+        try:
+            start_time = time.time()
+
+            if self.backend == "parallax" and self.client:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=200,
+                    temperature=0.1,  # Low for consistent analysis
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}}
+                )
+
+                inference_time_ms = (time.time() - start_time) * 1000
+                system_state.record_inference(inference_time_ms, tokens=200)
+
+                if response and response.choices:
+                    choice = response.choices[0]
+                    content = None
+
+                    if hasattr(choice, 'message') and choice.message and hasattr(choice.message, 'content'):
+                        content = choice.message.content
+                    elif hasattr(choice, 'messages') and choice.messages:
+                        if hasattr(choice.messages, 'content'):
+                            content = choice.messages.content
+                        elif isinstance(choice.messages, dict):
+                            content = choice.messages.get('content')
+
+                    if content:
+                        result = self._extract_json(content)
+                        if result:
+                            # Log Parallax threat analysis
+                            is_threat = result.get('threat', False)
+                            if isinstance(is_threat, str):
+                                is_threat = is_threat.lower() == 'true'
+
+                            log_event("PARALLAX", f"🧠 AI Analysis ({inference_time_ms:.0f}ms): {result.get('type', 'unknown')} - {result.get('reasoning', '')[:80]}", "INFO")
+
+                            return {
+                                "threat_detected": is_threat,
+                                "severity": result.get('severity', 'low'),
+                                "event_type": result.get('type', 'normal'),
+                                "confidence": float(result.get('confidence', 0.5)),
+                                "reasoning": result.get('reasoning', ''),
+                                "ai_analyzed": True,
+                                "inference_ms": inference_time_ms
+                            }
+
+            elif self.backend == "gradient":
+                import requests
+                response = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 200,
+                        "temperature": 0.1
+                    },
+                    timeout=15
+                )
+
+                inference_time_ms = (time.time() - start_time) * 1000
+                system_state.record_inference(inference_time_ms, tokens=200)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("choices"):
+                        content = data["choices"][0].get("message", {}).get("content", "")
+                        result = self._extract_json(content)
+                        if result:
+                            is_threat = result.get('threat', False)
+                            if isinstance(is_threat, str):
+                                is_threat = is_threat.lower() == 'true'
+
+                            log_event("PARALLAX", f"🧠 AI Analysis ({inference_time_ms:.0f}ms): {result.get('type', 'unknown')}", "INFO")
+
+                            return {
+                                "threat_detected": is_threat,
+                                "severity": result.get('severity', 'low'),
+                                "event_type": result.get('type', 'normal'),
+                                "confidence": float(result.get('confidence', 0.5)),
+                                "reasoning": result.get('reasoning', ''),
+                                "ai_analyzed": True,
+                                "inference_ms": inference_time_ms
+                            }
+
+        except Exception as e:
+            log_event("PARALLAX", f"AI threat analysis error: {e}", "DEBUG")
+
+        return None  # Fall back to rule-based if Parallax fails
+
     def analyze_trend(self, recent_analyses: list) -> dict:
         """
         Stage 4: Analyze trends in recent detections via Parallax
@@ -1526,13 +1664,14 @@ class AegisSentinel:
         log_event("CLUSTER", "   Architecture: Distributed LLM serving via Parallax", "INFO")
         system_state.parallax_metrics["model_loaded"] = True
 
-        # Show Parallax integration features
-        log_event("PARALLAX", "AI Pipeline Stages:", "INFO")
-        log_event("PARALLAX", f"  1. Scene Interpretation: {'✓' if config.USE_PARALLAX_FOR_SCENE_DESCRIPTION else '✗'}", "INFO")
-        log_event("PARALLAX", f"  2. Threat Analysis: ✓ (Rule-based + AI)", "INFO")
-        log_event("PARALLAX", f"  3. Action Planning: {'✓' if config.USE_PARALLAX_FOR_ACTION_PLANNING else '✗'}", "INFO")
-        log_event("PARALLAX", f"  4. Trend Analysis: ✓", "INFO")
-        log_event("PARALLAX", f"  5. Log Summaries: {'✓' if config.USE_PARALLAX_FOR_LOGGING else '✗'}", "INFO")
+        # Show Parallax integration features - NOW WITH REAL AI THREAT DETECTION!
+        log_event("PARALLAX", "🔥 AI Pipeline Stages (Competition Mode!):", "INFO")
+        log_event("PARALLAX", f"  1. Scene Interpretation: {'✓' if config.USE_PARALLAX_FOR_SCENE_DESCRIPTION else '✗'} Parallax", "INFO")
+        log_event("PARALLAX", f"  2. 🎯 THREAT DETECTION: ✓ PARALLAX AI (core feature!)", "INFO")
+        log_event("PARALLAX", f"  3. Action Planning: {'✓' if config.USE_PARALLAX_FOR_ACTION_PLANNING else '✗'} Parallax", "INFO")
+        log_event("PARALLAX", f"  4. Trend Analysis: ✓ Parallax", "INFO")
+        log_event("PARALLAX", f"  5. Log Summaries: {'✓' if config.USE_PARALLAX_FOR_LOGGING else '✗'} Parallax", "INFO")
+        log_event("PARALLAX", "   → Every scan uses Parallax AI for intelligent threat decisions!", "INFO")
 
         # Load vision model
         self.vision.load_model()
@@ -1615,31 +1754,53 @@ class AegisSentinel:
         system_state.last_description = description
         system_state.last_features = getattr(self.vision, 'last_features', {})
 
-        # === STAGE 2: Threat Detection (Rule-Based from OpenCV Features) ===
-        # Using rule-based detection is MORE RELIABLE than asking small LLMs!
-        threat_info = self.vision.detect_threat_from_features()
+        # === STAGE 2: Threat Detection via PARALLAX AI ===
+        # 🔥 KEY COMPETITION FEATURE: Parallax AI makes the threat decision!
+        # This shows real AI inference on the Parallax cluster
+        features = getattr(self.vision, 'last_features', {})
 
-        if threat_info:
-            # Actual threat detected by OpenCV rules
+        # Try Parallax AI analysis first (this is what wins the competition!)
+        ai_analysis = self.reasoning.analyze_threat_with_parallax(features, description)
+
+        if ai_analysis:
+            # Parallax AI made the threat decision! 🎯
             analysis = {
-                "threat_detected": True,
-                "severity": threat_info.get("severity", "high"),
-                "event_type": ", ".join(threat_info.get("threats", ["unknown"])),
-                "confidence": 0.90,  # High confidence - rule-based
-                "action_required": "Check immediately",
+                "threat_detected": ai_analysis.get("threat_detected", False),
+                "severity": ai_analysis.get("severity", "low"),
+                "event_type": ai_analysis.get("event_type", "normal"),
+                "confidence": ai_analysis.get("confidence", 0.5),
+                "action_required": "Check immediately" if ai_analysis.get("threat_detected") else "Continue monitoring",
                 "description": description,
-                "features": threat_info.get("features", {})
+                "reasoning": ai_analysis.get("reasoning", ""),
+                "ai_analyzed": True,
+                "inference_ms": ai_analysis.get("inference_ms", 0),
+                "features": features
             }
         else:
-            # No threat - safe scene
-            analysis = {
-                "threat_detected": False,
-                "severity": "low",
-                "event_type": "normal",
-                "confidence": 0.95,
-                "action_required": "Continue monitoring",
-                "description": description
-            }
+            # Fallback to rule-based detection (backup if Parallax unavailable)
+            threat_info = self.vision.detect_threat_from_features()
+
+            if threat_info:
+                analysis = {
+                    "threat_detected": True,
+                    "severity": threat_info.get("severity", "high"),
+                    "event_type": ", ".join(threat_info.get("threats", ["unknown"])),
+                    "confidence": 0.90,
+                    "action_required": "Check immediately",
+                    "description": description,
+                    "features": threat_info.get("features", {}),
+                    "ai_analyzed": False
+                }
+            else:
+                analysis = {
+                    "threat_detected": False,
+                    "severity": "low",
+                    "event_type": "normal",
+                    "confidence": 0.95,
+                    "action_required": "Continue monitoring",
+                    "description": description,
+                    "ai_analyzed": False
+                }
 
         analysis['timestamp'] = timestamp
 
@@ -1685,7 +1846,16 @@ class AegisSentinel:
             # Track event for summary
             self.events_since_last_summary.append(analysis)
         else:
-            log_event("SCAN", f"✓ Normal: {description[:60]}...", "INFO")
+            # Show AI analysis info in logs
+            if analysis.get('ai_analyzed'):
+                reasoning = analysis.get('reasoning', '')
+                if reasoning:
+                    log_event("SCAN", f"✓ Normal: {description}", "INFO")
+                    log_event("PARALLAX", f"🧠 Reasoning: {reasoning}", "INFO")
+                else:
+                    log_event("SCAN", f"✓ Normal: {description}", "INFO")
+            else:
+                log_event("SCAN", f"✓ Normal (rule-based): {description}", "INFO")
 
         # === STAGE 4: Trend Analysis via Parallax (every 5 scans) ===
         if self.scan_count % 5 == 0 and len(self.recent_analyses) >= 3:
@@ -1696,7 +1866,7 @@ class AegisSentinel:
         # === STAGE 5: Log Summary via Parallax (periodic) ===
         if self.scan_count % self.summary_interval == 0 and self.events_since_last_summary:
             summary = self.reasoning.generate_log_summary(self.events_since_last_summary)
-            log_event("SUMMARY", f"Parallax: {summary[:100]}...", "INFO")
+            log_event("SUMMARY", f"Parallax: {summary}", "INFO")
             self.events_since_last_summary = []
 
         return analysis

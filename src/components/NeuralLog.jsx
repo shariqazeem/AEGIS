@@ -131,11 +131,11 @@ const NeuralLog = () => {
                 })}
             </div>
 
-            {/* Footer with last description */}
+            {/* Footer with last description - expandable */}
             {systemInfo.lastDescription && (
-                <div className="px-4 py-2 bg-black/60 border-t border-white/10 text-xs font-mono truncate flex items-center gap-2">
-                    <span className="text-neon-blue shrink-0 font-bold">LAST:</span>
-                    <span className="text-slate-400 truncate">{systemInfo.lastDescription}</span>
+                <div className="px-4 py-3 bg-black/60 border-t border-white/10 text-sm font-mono flex flex-col gap-1">
+                    <span className="text-neon-blue shrink-0 font-bold text-xs">PARALLAX SCENE ANALYSIS:</span>
+                    <span className="text-slate-300 leading-relaxed">{systemInfo.lastDescription}</span>
                 </div>
             )}
         </div>
