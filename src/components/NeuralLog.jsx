@@ -57,40 +57,40 @@ const NeuralLog = () => {
         return typeColors[type] || 'text-slate-400 bg-slate-500/20 border-slate-500/30';
     };
 
-    // Filter out DEBUG logs for cleaner display (optional)
+    // Filter out DEBUG logs for cleaner display
     const visibleLogs = logs.filter(log => log.level !== 'DEBUG');
 
     return (
         <div className="flex flex-col h-full bg-obsidian/50 backdrop-blur-sm">
             {/* Header with stats */}
-            <div className="px-4 py-2 bg-black/40 border-b border-white/10 flex items-center justify-between">
+            <div className="px-4 py-3 bg-black/40 border-b border-white/10 flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <div className="text-[10px] font-bold text-slate-400 tracking-widest uppercase font-mono">
-                        NEURAL INFERENCE STREAM
+                    <div className="text-xs font-bold text-slate-400 tracking-widest uppercase font-mono">
+                        NEURAL LOG
                     </div>
-                    <div className="flex gap-3 text-[9px] font-mono text-slate-500">
-                        <span>SCANS: <span className="text-neon-blue">{systemInfo.scanCount || 0}</span></span>
-                        <span>THREATS: <span className={systemInfo.threatCount > 0 ? 'text-neon-red animate-pulse' : 'text-slate-500'}>{systemInfo.threatCount || 0}</span></span>
+                    <div className="flex gap-4 text-xs font-mono text-slate-500">
+                        <span>SCANS: <span className="text-neon-blue font-bold">{systemInfo.scanCount || 0}</span></span>
+                        <span>THREATS: <span className={systemInfo.threatCount > 0 ? 'text-neon-red font-bold animate-pulse' : 'text-slate-500'}>{systemInfo.threatCount || 0}</span></span>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full ${systemInfo.parallaxConnected ? 'bg-neon-green shadow-[0_0_5px_#0aff68] animate-pulse' : 'bg-slate-600'}`} />
-                    <span className="text-[9px] font-mono text-slate-500">
-                        {systemInfo.parallaxConnected ? 'LINK_ESTABLISHED' : 'OFFLINE'}
+                    <div className={`w-2 h-2 rounded-full ${systemInfo.parallaxConnected ? 'bg-neon-green shadow-[0_0_8px_#0aff68] animate-pulse' : 'bg-slate-600'}`} />
+                    <span className="text-xs font-mono text-slate-500">
+                        {systemInfo.parallaxConnected ? 'LIVE' : 'OFFLINE'}
                     </span>
                 </div>
             </div>
 
-            {/* Log entries */}
+            {/* Log entries - LARGER and more readable */}
             <div
                 ref={scrollRef}
-                className="flex-1 p-3 overflow-y-auto font-mono text-[11px] space-y-1 scrollbar-hide relative"
+                className="flex-1 p-4 overflow-y-auto font-mono text-sm space-y-2 scrollbar-hide relative"
             >
                 {visibleLogs.length === 0 && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-600 opacity-50">
                         <div className="text-4xl mb-2 font-bold tracking-widest text-white/10">AEGIS</div>
-                        <div className="text-xs tracking-wider">WAITING FOR NEURAL STREAM...</div>
-                        <div className="text-[9px] mt-4 font-mono bg-white/5 px-2 py-1 rounded">
+                        <div className="text-sm tracking-wider">WAITING FOR NEURAL STREAM...</div>
+                        <div className="text-xs mt-4 font-mono bg-white/5 px-3 py-2 rounded">
                             python backend/vision_sentinel.py
                         </div>
                     </div>
@@ -105,25 +105,25 @@ const NeuralLog = () => {
                         <div
                             key={i}
                             className={`
-                                flex items-start gap-3 py-1.5 px-2 rounded border border-transparent transition-all duration-200
-                                ${isThreat ? 'bg-neon-red/5 border-neon-red/20 shadow-[0_0_10px_rgba(255,0,60,0.1)]' : 'hover:bg-white/5'}
+                                flex items-start gap-3 py-2 px-3 rounded border border-transparent transition-all duration-200
+                                ${isThreat ? 'bg-neon-red/10 border-neon-red/30 shadow-[0_0_15px_rgba(255,0,60,0.15)]' : 'hover:bg-white/5'}
                             `}
                         >
                             {/* Timestamp */}
-                            <span className="text-slate-500 shrink-0 w-[52px] font-mono opacity-70">
+                            <span className="text-slate-500 shrink-0 w-[60px] font-mono text-xs">
                                 {getTime(log)}
                             </span>
 
                             {/* Type badge */}
                             {log.type && log.type !== 'SYSTEM' && (
-                                <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeColor}`}>
+                                <span className={`shrink-0 px-2 py-0.5 rounded border text-xs font-bold tracking-wider ${typeColor}`}>
                                     {log.type}
                                 </span>
                             )}
 
                             {/* Message */}
-                            <span className={`flex-1 ${config.color} break-words leading-relaxed`}>
-                                {isThreat && <span className="mr-2 animate-pulse">⚠</span>}
+                            <span className={`flex-1 ${config.color} break-words leading-relaxed text-sm`}>
+                                {isThreat && <span className="mr-2 animate-pulse text-neon-red">⚠</span>}
                                 {log.message}
                             </span>
                         </div>
@@ -133,8 +133,8 @@ const NeuralLog = () => {
 
             {/* Footer with last description */}
             {systemInfo.lastDescription && (
-                <div className="px-3 py-2 bg-black/60 border-t border-white/10 text-[10px] font-mono truncate flex items-center gap-2">
-                    <span className="text-neon-blue shrink-0">LAST_INFERENCE:</span>
+                <div className="px-4 py-2 bg-black/60 border-t border-white/10 text-xs font-mono truncate flex items-center gap-2">
+                    <span className="text-neon-blue shrink-0 font-bold">LAST:</span>
                     <span className="text-slate-400 truncate">{systemInfo.lastDescription}</span>
                 </div>
             )}

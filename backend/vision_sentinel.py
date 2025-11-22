@@ -530,6 +530,19 @@ class VisionSystem:
             threats.append("significant red/orange with movement")
             severity = "high"
 
+        # === CAMERA COVERED/OBSTRUCTED DETECTION ===
+        # When someone covers the camera:
+        # - Very dark (low brightness)
+        # - Very few edges (uniform surface)
+        # - Very low contrast (uniform darkness)
+        # - No faces visible
+        if brightness < 30 and edge_density < 0.005 and contrast < 20 and faces_total == 0:
+            threats.append("camera obstructed or covered (tampering detected)")
+            severity = "critical"
+        elif brightness < 50 and edge_density < 0.008 and contrast < 25 and faces_total == 0:
+            threats.append("possible camera obstruction (very dark, no features)")
+            severity = "high"
+
         # === FALL DETECTION ===
         # Face in lower 30% of frame + very low motion = possible fall
         # Must have been tracking person (faces_total > 0 in recent frames)
