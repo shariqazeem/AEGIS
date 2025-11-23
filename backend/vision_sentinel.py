@@ -57,6 +57,11 @@ class SystemState:
         self._lock = threading.Lock()
         self._event_counter = 0  # For event IDs
 
+        # Video streaming state (for frontend display)
+        self.test_mode = False  # Flag for test mode
+        self.current_frame = None  # Current frame for video streaming
+        self.current_scenario = "Initializing..."  # Current scenario name
+
         # Parallax cluster metrics (for competition showcase!)
         self.parallax_metrics = {
             "nodes": 1,  # Current node count (will show potential for 7 Mac minis!)
@@ -2509,6 +2514,9 @@ class AegisSentinel:
         test_mode = getattr(self, 'test_mode', False)
         demo_mode = self.camera is None
 
+        # Update system_state for video streaming
+        system_state.test_mode = test_mode or demo_mode
+
         if test_mode:
             log_event("TEST", "🧪 TEST MODE ACTIVE - Cycling through threat scenarios", "INFO")
             log_event("TEST", "   Scenarios: Normal, Fire, Camera Blocked, Weapon, Fallen Person", "INFO")
@@ -2521,7 +2529,9 @@ class AegisSentinel:
         if not test_mode and not demo_mode and self.camera:
             log_event("CAMERA", "⏳ Camera warmup (3 frames)...", "DEBUG")
             for _ in range(3):
-                self.capture_frame()
+                frame = self.capture_frame()
+                if frame is not None:
+                    system_state.current_frame = frame  # Store warmup frame
                 time.sleep(0.3)
             log_event("CAMERA", "✓ Camera ready", "DEBUG")
 
@@ -2530,10 +2540,15 @@ class AegisSentinel:
                 if test_mode or demo_mode:
                     # Generate test frame for scenario testing
                     frame = self._generate_test_frame()
+                    # Update scenario name for frontend display
+                    scenario = self.test_scenarios[self.test_scenario_index]
+                    system_state.current_scenario = scenario['name']
                 else:
                     frame = self.capture_frame()
 
                 if frame is not None:
+                    # Store frame for video streaming (before processing so it shows immediately)
+                    system_state.current_frame = frame.copy()
                     analysis = self.process_frame(frame)
                 else:
                     log_event("WARN", "No frame available", "WARN")
@@ -2894,6 +2909,15 @@ async def list_cameras():
     List available cameras for selection.
     Competition Feature: Shows multi-camera support!
     """
+    # In test mode, return no cameras (synthetic mode)
+    if system_state.test_mode:
+        return {
+            "cameras": [],
+            "current": None,
+            "test_mode": True,
+            "message": "Test mode active - using synthetic frames"
+        }
+
     cameras = []
 
     # Check available cameras (indices 0-3)
@@ -2921,7 +2945,7 @@ async def list_cameras():
     return {
         "cameras": cameras,
         "current": _sentinel_instance.camera_index if _sentinel_instance else None,
-        "test_mode": _sentinel_instance.test_mode if _sentinel_instance else False
+        "test_mode": False
     }
 
 @api.post("/cameras/select/{index}")
@@ -2969,23 +2993,14 @@ async def video_feed():
     Competition Feature: Live visualization of AI detection!
     """
     def generate_frames():
-        global _sentinel_instance
+        import numpy as np
 
         while True:
             frame = None
 
-            if _sentinel_instance:
-                if _sentinel_instance.test_mode:
-                    # In test mode, generate synthetic frames
-                    frame = _sentinel_instance._generate_test_frame()
-                elif _sentinel_instance.current_frame is not None:
-                    # Use the latest captured frame
-                    frame = _sentinel_instance.current_frame.copy()
-                elif _sentinel_instance.camera and _sentinel_instance.camera.isOpened():
-                    # Capture a new frame
-                    ret, frame = _sentinel_instance.camera.read()
-                    if not ret:
-                        frame = None
+            # Use the shared current_frame from system_state
+            if system_state.current_frame is not None:
+                frame = system_state.current_frame.copy()
 
             if frame is not None:
                 # Add overlay text based on mode
@@ -2993,18 +3008,18 @@ async def video_feed():
                 height, width = overlay_frame.shape[:2]
 
                 # Add mode indicator
-                mode_text = "TEST MODE" if (_sentinel_instance and _sentinel_instance.test_mode) else "LIVE"
+                mode_text = "TEST MODE" if system_state.test_mode else "LIVE"
                 mode_color = (0, 255, 255) if mode_text == "TEST MODE" else (0, 255, 0)
                 cv2.putText(overlay_frame, mode_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, mode_color, 2)
 
                 # Add current scenario in test mode
-                if _sentinel_instance and _sentinel_instance.test_mode:
-                    scenario = _sentinel_instance.test_scenarios[_sentinel_instance.test_scenario_index]
-                    cv2.putText(overlay_frame, scenario['name'], (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                if system_state.test_mode and system_state.current_scenario:
+                    cv2.putText(overlay_frame, system_state.current_scenario, (10, 60),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
                 # Add threat level indicator
-                threat_color = (0, 0, 255) if system_state.threat_level == "CRITICAL" else (0, 255, 0)
-                cv2.putText(overlay_frame, f"STATUS: {system_state.threat_level}", (width - 200, 30),
+                threat_color = (0, 0, 255) if system_state.threat_level in ["CRITICAL", "THREAT DETECTED"] else (0, 255, 0)
+                cv2.putText(overlay_frame, f"STATUS: {system_state.threat_level}", (width - 250, 30),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, threat_color, 2)
 
                 # Add scan count
@@ -3018,10 +3033,14 @@ async def video_feed():
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
             else:
-                # Generate placeholder frame
-                import numpy as np
+                # Generate placeholder frame with helpful message
                 placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(placeholder, "NO SIGNAL", (220, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 100, 100), 2)
+                if system_state.test_mode:
+                    cv2.putText(placeholder, "STARTING TEST MODE...", (150, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+                    cv2.putText(placeholder, "Waiting for first frame", (180, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+                else:
+                    cv2.putText(placeholder, "WAITING FOR CAMERA...", (160, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (100, 100, 100), 2)
+                    cv2.putText(placeholder, "Start vision_sentinel.py", (185, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (80, 80, 80), 1)
                 _, buffer = cv2.imencode('.jpg', placeholder)
                 frame_bytes = buffer.tobytes()
                 yield (b'--frame\r\n'
@@ -3039,8 +3058,9 @@ async def video_health():
     """Health check for video server compatibility"""
     return {
         "status": "ok",
-        "camera_available": system_state.camera_active or (_sentinel_instance and _sentinel_instance.test_mode),
-        "test_mode": _sentinel_instance.test_mode if _sentinel_instance else False
+        "camera_available": system_state.camera_active or system_state.test_mode,
+        "test_mode": system_state.test_mode,
+        "current_scenario": system_state.current_scenario
     }
 
 def run_api_server():

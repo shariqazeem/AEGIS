@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { clsx } from 'clsx';
 import { VideoCameraIcon, ChevronDownIcon, BeakerIcon } from '@heroicons/react/24/outline';
 
@@ -9,6 +9,8 @@ const VideoFeed = ({ className }) => {
     const [currentCamera, setCurrentCamera] = useState(null);
     const [isTestMode, setIsTestMode] = useState(false);
     const [showCameraSelect, setShowCameraSelect] = useState(false);
+    const [currentScenario, setCurrentScenario] = useState("");
+    const imgRef = useRef(null);
 
     // Use the same port as the sentinel API (8001)
     const VIDEO_SERVER_URL = "http://localhost:8001/video_feed";
@@ -22,15 +24,20 @@ const VideoFeed = ({ className }) => {
                     if (data.camera_available || data.test_mode) {
                         setIsConnected(true);
                         setIsTestMode(data.test_mode);
+                        setCurrentScenario(data.current_scenario || "");
                         setError(null);
                     } else {
-                        setError("Camera not available");
+                        setError("Camera not available - Start vision_sentinel.py");
                         setIsConnected(false);
                     }
+                } else {
+                    setError("Backend not responding");
+                    setIsConnected(false);
                 }
             } catch (err) {
                 setError("Backend offline - Start vision_sentinel.py");
                 setIsConnected(false);
+                setIsTestMode(false);
             }
         };
 
@@ -41,7 +48,9 @@ const VideoFeed = ({ className }) => {
                     const data = await res.json();
                     setCameras(data.cameras || []);
                     setCurrentCamera(data.current);
-                    setIsTestMode(data.test_mode);
+                    if (data.test_mode !== undefined) {
+                        setIsTestMode(data.test_mode);
+                    }
                 }
             } catch (err) {
                 // Silent fail for camera list
@@ -53,7 +62,7 @@ const VideoFeed = ({ className }) => {
         const interval = setInterval(() => {
             checkConnection();
             fetchCameras();
-        }, 5000);
+        }, 2000);  // More frequent updates
         return () => clearInterval(interval);
     }, []);
 
@@ -133,40 +142,55 @@ const VideoFeed = ({ className }) => {
                             </span>
                         </div>
 
-                        {/* Camera selector */}
+                        {/* Camera selector / Test mode indicator */}
                         <div className="relative pointer-events-auto">
-                            <button
-                                onClick={() => setShowCameraSelect(!showCameraSelect)}
-                                className="flex items-center gap-2 px-3 py-1 bg-black/40 border border-white/10 rounded backdrop-blur-md hover:bg-white/10 transition-colors"
-                            >
-                                <VideoCameraIcon className="w-3 h-3 text-neon-blue" />
-                                <span className="text-[10px] font-mono text-neon-blue tracking-widest">
-                                    {isTestMode ? "TEST MODE" : `CAM-${String(currentCamera || 0).padStart(2, '0')}`}
-                                </span>
-                                <ChevronDownIcon className="w-3 h-3 text-neon-blue" />
-                            </button>
-
-                            {/* Camera dropdown */}
-                            {showCameraSelect && !isTestMode && cameras.length > 0 && (
-                                <div className="absolute top-full left-0 mt-1 bg-slate-900/95 border border-white/10 rounded-lg overflow-hidden backdrop-blur-xl shadow-xl min-w-[180px]">
-                                    {cameras.map((cam) => (
-                                        <button
-                                            key={cam.index}
-                                            onClick={() => selectCamera(cam.index)}
-                                            className={clsx(
-                                                "w-full px-3 py-2 text-left text-[10px] font-mono transition-colors",
-                                                cam.active
-                                                    ? "bg-neon-purple/20 text-neon-purple"
-                                                    : "text-slate-300 hover:bg-white/10"
-                                            )}
-                                        >
-                                            <div className="flex items-center justify-between">
-                                                <span>{cam.name}</span>
-                                                <span className="text-slate-500">{cam.resolution}</span>
-                                            </div>
-                                        </button>
-                                    ))}
+                            {isTestMode ? (
+                                /* Test mode - just show indicator, no dropdown */
+                                <div className="flex items-center gap-2 px-3 py-1 bg-yellow-500/20 border border-yellow-500/30 rounded backdrop-blur-md">
+                                    <BeakerIcon className="w-3 h-3 text-yellow-400" />
+                                    <span className="text-[10px] font-mono text-yellow-400 tracking-widest">
+                                        DEMO MODE
+                                    </span>
                                 </div>
+                            ) : (
+                                /* Real mode - show camera selector */
+                                <>
+                                    <button
+                                        onClick={() => setShowCameraSelect(!showCameraSelect)}
+                                        className="flex items-center gap-2 px-3 py-1 bg-black/40 border border-white/10 rounded backdrop-blur-md hover:bg-white/10 transition-colors"
+                                    >
+                                        <VideoCameraIcon className="w-3 h-3 text-neon-blue" />
+                                        <span className="text-[10px] font-mono text-neon-blue tracking-widest">
+                                            CAM-{String(currentCamera || 0).padStart(2, '0')}
+                                        </span>
+                                        {cameras.length > 1 && (
+                                            <ChevronDownIcon className="w-3 h-3 text-neon-blue" />
+                                        )}
+                                    </button>
+
+                                    {/* Camera dropdown */}
+                                    {showCameraSelect && cameras.length > 0 && (
+                                        <div className="absolute top-full left-0 mt-1 bg-slate-900/95 border border-white/10 rounded-lg overflow-hidden backdrop-blur-xl shadow-xl min-w-[180px] z-50">
+                                            {cameras.map((cam) => (
+                                                <button
+                                                    key={cam.index}
+                                                    onClick={() => selectCamera(cam.index)}
+                                                    className={clsx(
+                                                        "w-full px-3 py-2 text-left text-[10px] font-mono transition-colors",
+                                                        cam.active
+                                                            ? "bg-neon-purple/20 text-neon-purple"
+                                                            : "text-slate-300 hover:bg-white/10"
+                                                    )}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <span>{cam.name}</span>
+                                                        <span className="text-slate-500">{cam.resolution}</span>
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>
@@ -187,13 +211,18 @@ const VideoFeed = ({ className }) => {
                     </div>
                 )}
 
-                {/* Test Mode Banner */}
+                {/* Test Mode Banner with Current Scenario */}
                 {isTestMode && isConnected && (
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-16">
-                        <div className="px-4 py-2 bg-yellow-500/20 border border-yellow-500/50 rounded-lg backdrop-blur-md">
-                            <span className="text-[11px] font-mono text-yellow-400 tracking-widest animate-pulse">
-                                DEMO MODE - SYNTHETIC SCENARIOS
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-20">
+                        <div className="px-4 py-3 bg-black/60 border border-yellow-500/50 rounded-lg backdrop-blur-md text-center">
+                            <span className="text-[10px] font-mono text-yellow-400 tracking-widest block mb-1">
+                                DEMO MODE
                             </span>
+                            {currentScenario && (
+                                <span className="text-[13px] font-mono text-white font-bold block animate-pulse">
+                                    {currentScenario}
+                                </span>
+                            )}
                         </div>
                     </div>
                 )}
