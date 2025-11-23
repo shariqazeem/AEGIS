@@ -85,22 +85,27 @@ const VideoFeed = ({ className }) => {
 
     return (
         <div className={clsx("relative rounded-xl overflow-hidden bg-black border border-white/10 shadow-2xl group", className)}>
-            {/* Scanline Effect */}
-            <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.25)_50%)] bg-[length:100%_4px] pointer-events-none z-10 opacity-50" />
+            {/* Scanline Effect - subtle overlay on top of video */}
+            <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.15)_50%)] bg-[length:100%_4px] pointer-events-none z-20 opacity-30" />
 
-            {/* Vignette */}
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_50%,rgba(0,0,0,0.6)_100%)] pointer-events-none z-10" />
+            {/* Vignette - subtle darkening at edges */}
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_60%,rgba(0,0,0,0.4)_100%)] pointer-events-none z-20" />
 
             {/* Real video stream or placeholder */}
             {isConnected ? (
                 <img
+                    ref={imgRef}
                     src={VIDEO_SERVER_URL}
                     alt="Live Feed"
-                    className="absolute inset-0 w-full h-full object-contain opacity-80 mix-blend-screen"
-                    onError={() => setIsConnected(false)}
+                    className="absolute inset-0 w-full h-full object-cover z-10"
+                    onError={() => {
+                        console.error("Video stream error");
+                        setIsConnected(false);
+                    }}
+                    onLoad={() => console.log("Video stream connected")}
                 />
             ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-obsidian">
+                <div className="absolute inset-0 flex items-center justify-center bg-obsidian z-10">
                     <div className="text-center p-8 relative z-20">
                         <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-white/5 flex items-center justify-center border border-white/10 animate-pulse">
                             <div className="w-16 h-16 rounded-full border border-neon-red/30 flex items-center justify-center">
