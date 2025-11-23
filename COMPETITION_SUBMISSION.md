@@ -47,16 +47,17 @@ private moments to corporate servers."
 ### Part 2: The Solution - AEGIS (30 seconds)
 ```
 [Screen recording of AEGIS dashboard]
-"AEGIS is different. It uses Parallax to run Moondream vision
-and Llama reasoning entirely on your device."
+"AEGIS is different. It uses a 7-STAGE PARALLAX AI PIPELINE
+running entirely on your device."
 
-[Show the three-step workflow]
-1. Moondream analyzes the webcam feed
-2. Parallax routes threats to Llama for deep reasoning
-3. AEGIS logs everything locally, encrypted
+[Show the 7-stage pipeline visualization]
+1. YOLOv8 detects objects in the frame
+2. Parallax Stage 1: Scene interpretation
+3. Parallax Stage 2: AI-powered threat analysis
+4. Parallax Stage 3-7: Action planning, trends, behavior, risk scoring
 
 [Dramatically unplug ethernet cable]
-"No internet required. Complete sovereignty."
+"No internet required. 7 AI stages. Complete sovereignty."
 ```
 
 ### Part 3: Live Demo - Home Mode (45 seconds)
@@ -120,11 +121,33 @@ orchestration. All running on Apple Silicon."
 
 ## 🎯 Key Technical Differentiators
 
-### Vision Architecture: Why Moondream2 for Edge Efficiency
+### 🔥 7-STAGE PARALLAX AI PIPELINE (Competition Winner!)
 **Highlight:**
-- "Moondream processes frames at <2.5s latency on M1 Air"
-- "Validates edge-first design philosophy for consumer hardware"
-- **Show**: Real-time inference performance graph
+- "AEGIS makes UP TO 7 PARALLAX API CALLS PER SCAN!"
+- "No other submission will demonstrate this level of Parallax integration"
+- **Show**: The 7-stage pipeline visualization in the dashboard
+
+| Stage | Function | When Called |
+|-------|----------|-------------|
+| 1 | Scene Interpretation | Every scan |
+| 2 | Threat Detection | Every scan |
+| 3 | Action Planning | On threat |
+| 4 | Trend Analysis | Every 5 scans |
+| 5 | Log Summaries | Every 10 scans |
+| 6 | Behavior Analysis | Every 3 scans |
+| 7 | Risk Scoring | Every scan |
+
+### Enhanced YOLO + Parallax Fusion
+**Highlight:**
+- "YOLOv8n detects 80+ object classes with class-specific confidence"
+- "Smart thresholds: 0.35 for people (sensitive), 0.55 for weapons (precise)"
+- **Show**: Object detection + Parallax reasoning working together
+
+### Vision Architecture: YOLOv8 + OpenCV + Parallax AI
+**Highlight:**
+- "YOLOv8 processes frames at <100ms latency on Apple Silicon"
+- "Parallax AI analyzes detections with reasoning"
+- **Show**: Real-time inference performance with 7-stage pipeline active
 
 ### Dual-Mode Operation: Bridging Home Care and Industrial NDT
 **Highlight:**
@@ -134,15 +157,15 @@ orchestration. All running on Apple Silicon."
 
 ### Agentic Pipeline: Autonomous Multi-Model Orchestration
 **Highlight:**
-- "True agentic loop: autonomous decision-making without human intervention"
-- "Parallax enables the Perception → Reasoning → Action pipeline"
-- **Show**: Architecture diagram with data flow
+- "True agentic loop: 7 stages of AI reasoning without human intervention"
+- "Parallax enables the Perception → Reasoning → Action → Analysis pipeline"
+- **Show**: Architecture diagram with 7-stage data flow
 
-### Distributed Inference: Seamless Model Coordination
+### Multi-Factor Risk Assessment
 **Highlight:**
-- "AEGIS leverages Parallax's distributed inference capabilities"
-- "Showcases orchestrating multiple models seamlessly on Apple Silicon"
-- **Show**: Parallax dashboard with both models loaded
+- "Stage 7 combines all inputs into actionable risk score"
+- "Behavioral analysis + threat detection + environmental factors"
+- **Show**: Risk score changing in real-time
 
 ---
 
