@@ -2131,6 +2131,11 @@ class AegisSentinel:
         self.camera_backend = None
         self.test_mode = False  # Test mode flag
 
+        # Video streaming thread for smooth playback (30 FPS)
+        self._video_thread = None
+        self._video_running = False
+        self._frame_lock = threading.Lock()
+
         # Track analyses for trend detection (Parallax feature!)
         self.recent_analyses = []
         self.max_history = 20
@@ -2540,30 +2545,36 @@ class AegisSentinel:
             log_event("DEMO", "🎬 Running in DEMO mode - Generating test frames", "INFO")
             log_event("DEMO", "   This demonstrates Parallax integration without camera", "INFO")
 
+        # === START VIDEO STREAMING THREAD (30 FPS for smooth playback) ===
+        self._start_video_stream_thread()
+
         # === CAMERA WARMUP (Fix false obstruction on first frame) ===
         if not test_mode and not demo_mode and self.camera:
             log_event("CAMERA", "⏳ Camera warmup (3 frames)...", "DEBUG")
             for _ in range(3):
                 frame = self.capture_frame()
                 if frame is not None:
-                    system_state.current_frame = frame  # Store warmup frame
+                    with self._frame_lock:
+                        system_state.current_frame = frame  # Store warmup frame
                 time.sleep(0.3)
             log_event("CAMERA", "✓ Camera ready", "DEBUG")
 
         try:
             while self.running:
                 if test_mode or demo_mode:
-                    # Generate test frame for scenario testing
-                    frame = self._generate_test_frame()
+                    # Get frame from video thread (already being generated)
+                    with self._frame_lock:
+                        frame = system_state.current_frame.copy() if system_state.current_frame is not None else None
                     # Update scenario name for frontend display
                     scenario = self.test_scenarios[self.test_scenario_index]
                     system_state.current_scenario = scenario['name']
                 else:
-                    frame = self.capture_frame()
+                    # Get frame from video thread (already being captured)
+                    with self._frame_lock:
+                        frame = system_state.current_frame.copy() if system_state.current_frame is not None else None
 
                 if frame is not None:
-                    # Store frame for video streaming (before processing so it shows immediately)
-                    system_state.current_frame = frame.copy()
+                    # Process frame for AI analysis (video thread handles display)
                     analysis = self.process_frame(frame)
                 else:
                     log_event("WARN", "No frame available", "WARN")
@@ -2718,8 +2729,172 @@ class AegisSentinel:
         """Backward compatible wrapper for test frame generation"""
         return self._generate_test_frame()
 
+    def _start_video_stream_thread(self):
+        """
+        Start a dedicated video capture thread for smooth 30 FPS streaming.
+        This runs separately from the analysis loop for responsive video feed.
+        """
+        self._video_running = True
+
+        def video_capture_loop():
+            import numpy as np
+            frame_time = 1.0 / 30  # Target 30 FPS
+
+            # For test mode, load sample images or generate animated frames
+            test_frame_counter = 0
+
+            while self._video_running:
+                start_time = time.time()
+
+                try:
+                    if self.test_mode or self.camera is None:
+                        # Test mode: Generate animated realistic-looking frames
+                        test_frame_counter += 1
+                        frame = self._generate_animated_test_frame(test_frame_counter)
+                    else:
+                        # Real camera: Capture live frame
+                        if self.camera and self.camera.isOpened():
+                            ret, frame = self.camera.read()
+                            if not ret or frame is None:
+                                time.sleep(frame_time)
+                                continue
+                        else:
+                            time.sleep(frame_time)
+                            continue
+
+                    # Update shared frame with thread safety
+                    with self._frame_lock:
+                        system_state.current_frame = frame.copy()
+
+                except Exception as e:
+                    log_event("VIDEO", f"Frame capture error: {e}", "DEBUG")
+
+                # Maintain target frame rate
+                elapsed = time.time() - start_time
+                sleep_time = max(0, frame_time - elapsed)
+                time.sleep(sleep_time)
+
+        self._video_thread = threading.Thread(target=video_capture_loop, daemon=True)
+        self._video_thread.start()
+        log_event("VIDEO", "✓ Video streaming thread started (30 FPS)", "SUCCESS")
+
+    def _generate_animated_test_frame(self, frame_counter):
+        """
+        Generate animated test frames that look like real security camera footage.
+        Includes motion, timestamp overlay, and scenario-specific visuals.
+        """
+        import numpy as np
+
+        height, width = 720, 1280
+
+        # Get current scenario
+        scenario = self.test_scenarios[self.test_scenario_index]
+        scenario_type = scenario["type"]
+
+        # Create base frame with gradient (simulates room lighting)
+        if scenario_type == "dark":
+            # Dark room - very dim
+            base_color = 20
+            frame = np.full((height, width, 3), base_color, dtype=np.uint8)
+            # Add some noise for realism
+            noise = np.random.randint(-5, 5, (height, width, 3), dtype=np.int16)
+            frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+        elif scenario_type == "blocked":
+            # Camera blocked - mostly black with some edge light
+            frame = np.zeros((height, width, 3), dtype=np.uint8)
+            # Add slight light leak at edges
+            cv2.rectangle(frame, (0, 0), (width, 30), (15, 15, 15), -1)
+            cv2.rectangle(frame, (0, height-30), (width, height), (15, 15, 15), -1)
+        elif scenario_type == "fire":
+            # Fire scene - orange/red flickering
+            base = np.zeros((height, width, 3), dtype=np.uint8)
+            # Background
+            cv2.rectangle(base, (0, 0), (width, height), (40, 60, 80), -1)
+            # Animated fire glow
+            flicker = int(20 * np.sin(frame_counter * 0.3)) + 30
+            cv2.ellipse(base, (width//2, height-100), (300 + flicker, 200 + flicker//2),
+                       0, 180, 360, (0, 100 + flicker, 200 + flicker), -1)
+            cv2.ellipse(base, (width//2, height-80), (200 + flicker//2, 150 + flicker//3),
+                       0, 180, 360, (0, 150 + flicker, 255), -1)
+            frame = base
+        else:
+            # Normal scenes - office/room environment simulation
+            frame = np.zeros((height, width, 3), dtype=np.uint8)
+            # Walls (gray gradient)
+            cv2.rectangle(frame, (0, 0), (width, height//2), (100, 95, 90), -1)
+            cv2.rectangle(frame, (0, height//2), (width, height), (80, 75, 70), -1)
+            # Floor line
+            cv2.line(frame, (0, height//2 + 50), (width, height//2 + 50), (60, 55, 50), 2)
+
+            # Add simulated person(s) based on scenario
+            if scenario_type in ["normal", "multiple"]:
+                # Person silhouette (animated breathing motion)
+                bob = int(3 * np.sin(frame_counter * 0.1))
+                person_x = width // 3
+                person_y = height // 2 - 50 + bob
+                # Head
+                cv2.circle(frame, (person_x, person_y), 35, (120, 110, 100), -1)
+                # Body
+                cv2.ellipse(frame, (person_x, person_y + 100), (50, 80), 0, 0, 360, (90, 85, 80), -1)
+
+                if scenario_type == "multiple":
+                    # Second person
+                    person_x2 = 2 * width // 3
+                    bob2 = int(3 * np.sin(frame_counter * 0.15 + 1))
+                    cv2.circle(frame, (person_x2, person_y + bob2), 35, (110, 105, 95), -1)
+                    cv2.ellipse(frame, (person_x2, person_y + 100 + bob2), (50, 80), 0, 0, 360, (85, 80, 75), -1)
+
+            elif scenario_type == "weapon":
+                # Person with knife
+                person_x = width // 2
+                person_y = height // 2 - 50
+                cv2.circle(frame, (person_x, person_y), 35, (120, 110, 100), -1)
+                cv2.ellipse(frame, (person_x, person_y + 100), (50, 80), 0, 0, 360, (90, 85, 80), -1)
+                # Knife (animated glint)
+                glint = int(20 * np.sin(frame_counter * 0.5)) + 200
+                knife_points = np.array([
+                    [person_x + 80, person_y + 50],
+                    [person_x + 130, person_y + 30],
+                    [person_x + 135, person_y + 35],
+                    [person_x + 85, person_y + 60]
+                ], np.int32)
+                cv2.fillPoly(frame, [knife_points], (glint, glint, glint))
+
+            elif scenario_type == "fallen":
+                # Person lying down
+                person_x = width // 2
+                person_y = height - 150
+                # Body horizontal
+                cv2.ellipse(frame, (person_x, person_y), (120, 40), 0, 0, 360, (90, 85, 80), -1)
+                # Head
+                cv2.circle(frame, (person_x - 140, person_y), 35, (120, 110, 100), -1)
+
+        # Add timestamp overlay (realistic security camera style)
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        cv2.putText(frame, timestamp, (10, height - 15),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+
+        # Add camera ID
+        cv2.putText(frame, "CAM-01 | AEGIS DEMO", (width - 250, height - 15),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1)
+
+        # Add scenario indicator
+        cv2.putText(frame, f"[{scenario['name']}]", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+        # Add subtle scan line effect (moving)
+        scan_y = (frame_counter * 3) % height
+        cv2.line(frame, (0, scan_y), (width, scan_y), (255, 255, 255), 1)
+
+        return frame
+
     def cleanup(self):
         """Clean shutdown"""
+        # Stop video streaming thread
+        self._video_running = False
+        if self._video_thread and self._video_thread.is_alive():
+            self._video_thread.join(timeout=1.0)
+
         if self.camera:
             self.camera.release()
         log_event("AEGIS", "👋 Sentinel terminated", "INFO")
@@ -3008,7 +3183,7 @@ async def video_feed():
     MJPEG video stream for frontend display.
     Works in both real camera and test mode!
 
-    Competition Feature: Live visualization of AI detection!
+    Competition Feature: Live visualization of AI detection at 30 FPS!
     """
     def generate_frames():
         import numpy as np
@@ -3016,36 +3191,26 @@ async def video_feed():
         while True:
             frame = None
 
-            # Use the shared current_frame from system_state
+            # Use the shared current_frame from system_state (updated by video thread at 30 FPS)
             if system_state.current_frame is not None:
                 frame = system_state.current_frame.copy()
 
             if frame is not None:
-                # Add overlay text based on mode
-                overlay_frame = frame.copy()
-                height, width = overlay_frame.shape[:2]
+                # For live camera, add minimal overlay (test mode frames already have overlays)
+                if not system_state.test_mode:
+                    height, width = frame.shape[:2]
+                    # Add LIVE indicator
+                    cv2.putText(frame, "LIVE", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    # Add threat status
+                    threat_color = (0, 0, 255) if system_state.threat_level in ["CRITICAL", "THREAT DETECTED"] else (0, 255, 0)
+                    cv2.putText(frame, f"STATUS: {system_state.threat_level}", (width - 250, 30),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, threat_color, 2)
+                    # Add scan count
+                    cv2.putText(frame, f"SCAN #{system_state.scan_count}", (10, height - 20),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
 
-                # Add mode indicator
-                mode_text = "TEST MODE" if system_state.test_mode else "LIVE"
-                mode_color = (0, 255, 255) if mode_text == "TEST MODE" else (0, 255, 0)
-                cv2.putText(overlay_frame, mode_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, mode_color, 2)
-
-                # Add current scenario in test mode
-                if system_state.test_mode and system_state.current_scenario:
-                    cv2.putText(overlay_frame, system_state.current_scenario, (10, 60),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-                # Add threat level indicator
-                threat_color = (0, 0, 255) if system_state.threat_level in ["CRITICAL", "THREAT DETECTED"] else (0, 255, 0)
-                cv2.putText(overlay_frame, f"STATUS: {system_state.threat_level}", (width - 250, 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, threat_color, 2)
-
-                # Add scan count
-                cv2.putText(overlay_frame, f"SCAN #{system_state.scan_count}", (10, height - 20),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-
-                # Encode frame as JPEG
-                _, buffer = cv2.imencode('.jpg', overlay_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                # Encode frame as JPEG (lower quality = faster streaming)
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
                 frame_bytes = buffer.tobytes()
 
                 yield (b'--frame\r\n'
@@ -3064,7 +3229,7 @@ async def video_feed():
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-            time.sleep(0.1)  # ~10 FPS for streaming
+            time.sleep(0.033)  # ~30 FPS for smooth streaming
 
     return StreamingResponse(
         generate_frames(),
