@@ -1243,30 +1243,45 @@ class ReasoningClient:
         return True  # Continue with mock
 
     def _try_parallax(self) -> bool:
-        """Test Parallax cluster connection"""
-        try:
-            from openai import OpenAI
-            client = OpenAI(
-                base_url=config.PARALLAX_BASE_URL,
-                api_key=config.PARALLAX_API_KEY
-            )
+        """Test Parallax cluster connection with retries (server may still be loading)"""
+        from openai import OpenAI
 
-            response = client.chat.completions.create(
-                model=config.PARALLAX_MODEL,
-                messages=[{"role": "user", "content": "test"}],
-                max_tokens=5,
-                timeout=5,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}}
-            )
+        # Retry up to 5 times with 2 second delay (total 10 seconds wait for server ready)
+        max_retries = 5
+        retry_delay = 2
 
-            if response and response.choices:
-                self.client = client
-                self.base_url = config.PARALLAX_BASE_URL
-                self.api_key = config.PARALLAX_API_KEY
-                self.model = config.PARALLAX_MODEL
-                return True
-        except Exception as e:
-            log_event("LLM", f"Parallax check failed: {e}", "DEBUG")
+        for attempt in range(max_retries):
+            try:
+                client = OpenAI(
+                    base_url=config.PARALLAX_BASE_URL,
+                    api_key=config.PARALLAX_API_KEY
+                )
+
+                response = client.chat.completions.create(
+                    model=config.PARALLAX_MODEL,
+                    messages=[{"role": "user", "content": "test"}],
+                    max_tokens=5,
+                    timeout=10,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}}
+                )
+
+                if response and response.choices:
+                    self.client = client
+                    self.base_url = config.PARALLAX_BASE_URL
+                    self.api_key = config.PARALLAX_API_KEY
+                    self.model = config.PARALLAX_MODEL
+                    return True
+
+            except Exception as e:
+                error_msg = str(e)
+                if "500" in error_msg or "not ready" in error_msg.lower():
+                    if attempt < max_retries - 1:
+                        log_event("LLM", f"Parallax not ready, retrying in {retry_delay}s... ({attempt + 1}/{max_retries})", "DEBUG")
+                        time.sleep(retry_delay)
+                        continue
+                log_event("LLM", f"Parallax check failed: {e}", "DEBUG")
+                break
+
         return False
 
     def _try_gradient(self) -> bool:
@@ -2778,8 +2793,24 @@ async def stream_events():
 
 @api.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "ok", "service": "aegis-sentinel"}
+    """
+    Health check endpoint for frontend video feed.
+    Returns camera/test mode status for VideoFeed.jsx component.
+    """
+    # Check if we have a valid frame source (camera OR test mode)
+    has_frame_source = (
+        system_state.test_mode or
+        system_state.camera_active or
+        system_state.current_frame is not None
+    )
+
+    return {
+        "status": "ok",
+        "service": "aegis-sentinel",
+        "camera_available": has_frame_source,  # True if video can stream
+        "test_mode": system_state.test_mode,
+        "current_scenario": system_state.current_scenario if system_state.test_mode else ""
+    }
 
 @api.get("/threats")
 async def get_threats(limit: int = 50):
@@ -2920,27 +2951,14 @@ async def list_cameras():
 
     cameras = []
 
-    # Check available cameras (indices 0-3)
-    for index in range(4):
-        try:
-            if hasattr(cv2, 'CAP_AVFOUNDATION'):
-                cap = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
-            else:
-                cap = cv2.VideoCapture(index)
-
-            if cap.isOpened():
-                ret, frame = cap.read()
-                if ret and frame is not None:
-                    height, width = frame.shape[:2]
-                    cameras.append({
-                        "index": index,
-                        "name": f"Camera {index}" if index > 0 else "Built-in Camera",
-                        "resolution": f"{width}x{height}",
-                        "active": _sentinel_instance and _sentinel_instance.camera_index == index
-                    })
-                cap.release()
-        except:
-            pass
+    # Return cached camera info from sentinel if available (avoid re-opening cameras)
+    if _sentinel_instance and _sentinel_instance.camera_index is not None:
+        cameras.append({
+            "index": _sentinel_instance.camera_index,
+            "name": "Active Camera",
+            "resolution": "1280x720",
+            "active": True
+        })
 
     return {
         "cameras": cameras,
