@@ -1,19 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { clsx } from 'clsx';
+import { VideoCameraIcon, ChevronDownIcon, BeakerIcon } from '@heroicons/react/24/outline';
 
 const VideoFeed = ({ className }) => {
     const [isConnected, setIsConnected] = useState(false);
     const [error, setError] = useState(null);
-    const VIDEO_SERVER_URL = "http://localhost:8000/video_feed";
+    const [cameras, setCameras] = useState([]);
+    const [currentCamera, setCurrentCamera] = useState(null);
+    const [isTestMode, setIsTestMode] = useState(false);
+    const [showCameraSelect, setShowCameraSelect] = useState(false);
+
+    // Use the same port as the sentinel API (8001)
+    const VIDEO_SERVER_URL = "http://localhost:8001/video_feed";
 
     useEffect(() => {
         const checkConnection = async () => {
             try {
-                const res = await fetch("http://localhost:8000/health");
+                const res = await fetch("http://localhost:8001/health");
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.camera_available) {
+                    if (data.camera_available || data.test_mode) {
                         setIsConnected(true);
+                        setIsTestMode(data.test_mode);
                         setError(null);
                     } else {
                         setError("Camera not available");
@@ -21,15 +29,50 @@ const VideoFeed = ({ className }) => {
                     }
                 }
             } catch (err) {
-                setError("Video server offline");
+                setError("Backend offline - Start vision_sentinel.py");
                 setIsConnected(false);
             }
         };
 
+        const fetchCameras = async () => {
+            try {
+                const res = await fetch("http://localhost:8001/cameras");
+                if (res.ok) {
+                    const data = await res.json();
+                    setCameras(data.cameras || []);
+                    setCurrentCamera(data.current);
+                    setIsTestMode(data.test_mode);
+                }
+            } catch (err) {
+                // Silent fail for camera list
+            }
+        };
+
         checkConnection();
-        const interval = setInterval(checkConnection, 5000);
+        fetchCameras();
+        const interval = setInterval(() => {
+            checkConnection();
+            fetchCameras();
+        }, 5000);
         return () => clearInterval(interval);
     }, []);
+
+    const selectCamera = async (index) => {
+        try {
+            const res = await fetch(`http://localhost:8001/cameras/select/${index}`, {
+                method: 'POST'
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success) {
+                    setCurrentCamera(index);
+                    setShowCameraSelect(false);
+                }
+            }
+        } catch (err) {
+            console.error("Failed to switch camera:", err);
+        }
+    };
 
     return (
         <div className={clsx("relative rounded-xl overflow-hidden bg-black border border-white/10 shadow-2xl group", className)}>
@@ -68,22 +111,63 @@ const VideoFeed = ({ className }) => {
                 {/* Top Bar */}
                 <div className="flex justify-between items-start">
                     <div className="flex items-center gap-4">
+                        {/* Recording indicator */}
                         <div className={clsx(
                             "flex items-center gap-2 px-3 py-1 border rounded backdrop-blur-md transition-colors duration-300",
                             isConnected
-                                ? "bg-neon-red/10 border-neon-red/30 text-neon-red"
+                                ? isTestMode
+                                    ? "bg-yellow-500/10 border-yellow-500/30 text-yellow-400"
+                                    : "bg-neon-red/10 border-neon-red/30 text-neon-red"
                                 : "bg-slate-800/50 border-slate-700 text-slate-500"
                         )}>
-                            <div className={clsx(
-                                "w-2 h-2 rounded-full shadow-[0_0_8px_currentColor]",
-                                isConnected ? "bg-neon-red animate-pulse" : "bg-slate-500"
-                            )} />
+                            {isTestMode ? (
+                                <BeakerIcon className="w-3 h-3" />
+                            ) : (
+                                <div className={clsx(
+                                    "w-2 h-2 rounded-full shadow-[0_0_8px_currentColor]",
+                                    isConnected ? "bg-neon-red animate-pulse" : "bg-slate-500"
+                                )} />
+                            )}
                             <span className="text-[10px] font-bold tracking-widest">
-                                {isConnected ? "REC" : "OFFLINE"}
+                                {isTestMode ? "TEST" : isConnected ? "REC" : "OFFLINE"}
                             </span>
                         </div>
-                        <div className="px-3 py-1 bg-black/40 border border-white/10 rounded backdrop-blur-md">
-                            <span className="text-[10px] font-mono text-neon-blue tracking-widest">CAM-01 // MAIN_FEED</span>
+
+                        {/* Camera selector */}
+                        <div className="relative pointer-events-auto">
+                            <button
+                                onClick={() => setShowCameraSelect(!showCameraSelect)}
+                                className="flex items-center gap-2 px-3 py-1 bg-black/40 border border-white/10 rounded backdrop-blur-md hover:bg-white/10 transition-colors"
+                            >
+                                <VideoCameraIcon className="w-3 h-3 text-neon-blue" />
+                                <span className="text-[10px] font-mono text-neon-blue tracking-widest">
+                                    {isTestMode ? "TEST MODE" : `CAM-${String(currentCamera || 0).padStart(2, '0')}`}
+                                </span>
+                                <ChevronDownIcon className="w-3 h-3 text-neon-blue" />
+                            </button>
+
+                            {/* Camera dropdown */}
+                            {showCameraSelect && !isTestMode && cameras.length > 0 && (
+                                <div className="absolute top-full left-0 mt-1 bg-slate-900/95 border border-white/10 rounded-lg overflow-hidden backdrop-blur-xl shadow-xl min-w-[180px]">
+                                    {cameras.map((cam) => (
+                                        <button
+                                            key={cam.index}
+                                            onClick={() => selectCamera(cam.index)}
+                                            className={clsx(
+                                                "w-full px-3 py-2 text-left text-[10px] font-mono transition-colors",
+                                                cam.active
+                                                    ? "bg-neon-purple/20 text-neon-purple"
+                                                    : "text-slate-300 hover:bg-white/10"
+                                            )}
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <span>{cam.name}</span>
+                                                <span className="text-slate-500">{cam.resolution}</span>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                     <div className="text-right">
@@ -103,6 +187,17 @@ const VideoFeed = ({ className }) => {
                     </div>
                 )}
 
+                {/* Test Mode Banner */}
+                {isTestMode && isConnected && (
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-16">
+                        <div className="px-4 py-2 bg-yellow-500/20 border border-yellow-500/50 rounded-lg backdrop-blur-md">
+                            <span className="text-[11px] font-mono text-yellow-400 tracking-widest animate-pulse">
+                                DEMO MODE - SYNTHETIC SCENARIOS
+                            </span>
+                        </div>
+                    </div>
+                )}
+
                 {/* Bottom Bar */}
                 <div className="flex justify-between items-end">
                     <div className="flex gap-1">
@@ -111,7 +206,7 @@ const VideoFeed = ({ className }) => {
                         ))}
                     </div>
                     <div className="text-[10px] font-mono text-neon-blue/50 tracking-[0.2em]">
-                        VISION SENTINEL V3.0
+                        VISION SENTINEL V3.0 // 7-STAGE AI
                     </div>
                 </div>
             </div>

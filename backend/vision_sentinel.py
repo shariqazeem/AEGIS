@@ -2517,6 +2517,14 @@ class AegisSentinel:
             log_event("DEMO", "🎬 Running in DEMO mode - Generating test frames", "INFO")
             log_event("DEMO", "   This demonstrates Parallax integration without camera", "INFO")
 
+        # === CAMERA WARMUP (Fix false obstruction on first frame) ===
+        if not test_mode and not demo_mode and self.camera:
+            log_event("CAMERA", "⏳ Camera warmup (3 frames)...", "DEBUG")
+            for _ in range(3):
+                self.capture_frame()
+                time.sleep(0.3)
+            log_event("CAMERA", "✓ Camera ready", "DEBUG")
+
         try:
             while self.running:
                 if test_mode or demo_mode:
@@ -2873,6 +2881,168 @@ async def get_screenshots(limit: int = 10):
         "total": len(system_state.threat_screenshots)
     }
 
+# =============================================================================
+# VIDEO STREAMING & CAMERA SELECTION (Competition Demo Feature!)
+# =============================================================================
+
+# Global reference to sentinel for video streaming
+_sentinel_instance = None
+
+@api.get("/cameras")
+async def list_cameras():
+    """
+    List available cameras for selection.
+    Competition Feature: Shows multi-camera support!
+    """
+    cameras = []
+
+    # Check available cameras (indices 0-3)
+    for index in range(4):
+        try:
+            if hasattr(cv2, 'CAP_AVFOUNDATION'):
+                cap = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
+            else:
+                cap = cv2.VideoCapture(index)
+
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    height, width = frame.shape[:2]
+                    cameras.append({
+                        "index": index,
+                        "name": f"Camera {index}" if index > 0 else "Built-in Camera",
+                        "resolution": f"{width}x{height}",
+                        "active": _sentinel_instance and _sentinel_instance.camera_index == index
+                    })
+                cap.release()
+        except:
+            pass
+
+    return {
+        "cameras": cameras,
+        "current": _sentinel_instance.camera_index if _sentinel_instance else None,
+        "test_mode": _sentinel_instance.test_mode if _sentinel_instance else False
+    }
+
+@api.post("/cameras/select/{index}")
+async def select_camera(index: int):
+    """
+    Switch to a different camera.
+    Competition Feature: Dynamic camera switching!
+    """
+    global _sentinel_instance
+
+    if not _sentinel_instance:
+        return {"success": False, "error": "Sentinel not running"}
+
+    if _sentinel_instance.test_mode:
+        return {"success": False, "error": "Cannot switch cameras in test mode"}
+
+    try:
+        # Release current camera
+        if _sentinel_instance.camera:
+            _sentinel_instance.camera.release()
+
+        # Open new camera
+        if hasattr(cv2, 'CAP_AVFOUNDATION'):
+            _sentinel_instance.camera = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
+        else:
+            _sentinel_instance.camera = cv2.VideoCapture(index)
+
+        if _sentinel_instance.camera.isOpened():
+            _sentinel_instance.camera_index = index
+            system_state.camera_active = True
+            log_event("CAMERA", f"✓ Switched to camera {index}", "SUCCESS")
+            return {"success": True, "camera_index": index}
+        else:
+            log_event("CAMERA", f"Failed to open camera {index}", "ERROR")
+            return {"success": False, "error": f"Failed to open camera {index}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@api.get("/video_feed")
+async def video_feed():
+    """
+    MJPEG video stream for frontend display.
+    Works in both real camera and test mode!
+
+    Competition Feature: Live visualization of AI detection!
+    """
+    def generate_frames():
+        global _sentinel_instance
+
+        while True:
+            frame = None
+
+            if _sentinel_instance:
+                if _sentinel_instance.test_mode:
+                    # In test mode, generate synthetic frames
+                    frame = _sentinel_instance._generate_test_frame()
+                elif _sentinel_instance.current_frame is not None:
+                    # Use the latest captured frame
+                    frame = _sentinel_instance.current_frame.copy()
+                elif _sentinel_instance.camera and _sentinel_instance.camera.isOpened():
+                    # Capture a new frame
+                    ret, frame = _sentinel_instance.camera.read()
+                    if not ret:
+                        frame = None
+
+            if frame is not None:
+                # Add overlay text based on mode
+                overlay_frame = frame.copy()
+                height, width = overlay_frame.shape[:2]
+
+                # Add mode indicator
+                mode_text = "TEST MODE" if (_sentinel_instance and _sentinel_instance.test_mode) else "LIVE"
+                mode_color = (0, 255, 255) if mode_text == "TEST MODE" else (0, 255, 0)
+                cv2.putText(overlay_frame, mode_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, mode_color, 2)
+
+                # Add current scenario in test mode
+                if _sentinel_instance and _sentinel_instance.test_mode:
+                    scenario = _sentinel_instance.test_scenarios[_sentinel_instance.test_scenario_index]
+                    cv2.putText(overlay_frame, scenario['name'], (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                # Add threat level indicator
+                threat_color = (0, 0, 255) if system_state.threat_level == "CRITICAL" else (0, 255, 0)
+                cv2.putText(overlay_frame, f"STATUS: {system_state.threat_level}", (width - 200, 30),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, threat_color, 2)
+
+                # Add scan count
+                cv2.putText(overlay_frame, f"SCAN #{system_state.scan_count}", (10, height - 20),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
+                # Encode frame as JPEG
+                _, buffer = cv2.imencode('.jpg', overlay_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                frame_bytes = buffer.tobytes()
+
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            else:
+                # Generate placeholder frame
+                import numpy as np
+                placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(placeholder, "NO SIGNAL", (220, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 100, 100), 2)
+                _, buffer = cv2.imencode('.jpg', placeholder)
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
+            time.sleep(0.1)  # ~10 FPS for streaming
+
+    return StreamingResponse(
+        generate_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
+@api.get("/health")
+async def video_health():
+    """Health check for video server compatibility"""
+    return {
+        "status": "ok",
+        "camera_available": system_state.camera_active or (_sentinel_instance and _sentinel_instance.test_mode),
+        "test_mode": _sentinel_instance.test_mode if _sentinel_instance else False
+    }
+
 def run_api_server():
     """Run FastAPI server in background thread"""
     uvicorn.run(api, host="0.0.0.0", port=8001, log_level="warning")
@@ -2883,6 +3053,7 @@ def run_api_server():
 
 def main():
     """Main entry point"""
+    global _sentinel_instance
     import argparse
 
     parser = argparse.ArgumentParser(description='AEGIS Vision Sentinel')
@@ -2901,9 +3072,14 @@ def main():
     api_thread = threading.Thread(target=run_api_server, daemon=True)
     api_thread.start()
     log_event("API", "✓ Status API started on http://localhost:8001", "SUCCESS")
+    log_event("API", "✓ Video stream available at http://localhost:8001/video_feed", "SUCCESS")
 
     sentinel = AegisSentinel()
     sentinel.test_mode = args.test
+
+    # Register global instance for video streaming
+    _sentinel_instance = sentinel
+
     sentinel.initialize()
     sentinel.run()
 
