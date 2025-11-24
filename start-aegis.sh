@@ -51,45 +51,30 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-# Start video server in background
-echo "1️⃣  Starting Video Server (Port 8000)..."
+# Start sentinel (which now includes video streaming on port 8001)
+echo "1️⃣  Starting AI Sentinel + Video Server (Port 8001)..."
 cd backend
 source venv/bin/activate
-python video_server.py > ../logs/video_server.log 2>&1 &
-VIDEO_PID=$!
-cd ..
-sleep 2
-
-# Check if video server started successfully
-if ps -p $VIDEO_PID > /dev/null; then
-    echo "${GREEN}   ✓ Video server running${NC}"
-else
-    echo "${YELLOW}   ⚠ Video server failed to start (check logs/video_server.log)${NC}"
-fi
-
-# Start sentinel in background
-echo "2️⃣  Starting AI Sentinel..."
-cd backend
 python vision_sentinel.py > ../logs/sentinel.log 2>&1 &
 SENTINEL_PID=$!
 cd ..
-sleep 2
+sleep 3
 
 if ps -p $SENTINEL_PID > /dev/null; then
-    echo "${GREEN}   ✓ Sentinel active${NC}"
+    echo "${GREEN}   ✓ Sentinel + Video active${NC}"
 else
     echo "${YELLOW}   ⚠ Sentinel failed to start (check logs/sentinel.log)${NC}"
 fi
 
 # Start frontend (this runs in foreground)
-echo "3️⃣  Starting Frontend..."
+echo "2️⃣  Starting Frontend..."
 echo ""
 echo "=================================================="
 echo "🟢 AEGIS IS NOW RUNNING"
 echo "=================================================="
 echo ""
-echo "Video Feed:  http://localhost:8000/video_feed"
-echo "Sentinel:    Running (check logs/sentinel.log)"
+echo "Video Feed:  http://localhost:8001/video_feed"
+echo "API:         http://localhost:8001/status"
 echo "Frontend:    Opening..."
 echo ""
 echo "Press Ctrl+C to stop all services"

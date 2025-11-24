@@ -5,10 +5,13 @@ import NeuralLog from '../components/NeuralLog';
 import ClusterMetrics from '../components/ClusterMetrics';
 import AIPipeline from '../components/AIPipeline';
 import NetworkDiagram from '../components/NetworkDiagram';
+import QueryInterface from '../components/QueryInterface';
+import DailySummary from '../components/DailySummary';
+import CostMetrics from '../components/CostMetrics';
 import { startSentinel, stopSentinel } from '../services/sentinel';
 
 const Dashboard = () => {
-    const [activeTab, setActiveTab] = useState('logs'); // 'logs' | 'cluster'
+    const [activeTab, setActiveTab] = useState('logs'); // 'logs' | 'cluster' | 'ai_intel'
 
     useEffect(() => {
         startSentinel();
@@ -66,6 +69,16 @@ const Dashboard = () => {
                     >
                         PARALLAX
                     </button>
+                    <button
+                        onClick={() => setActiveTab('ai_intel')}
+                        className={`flex-1 py-2 px-3 rounded-lg font-mono text-xs tracking-wider transition-all ${
+                            activeTab === 'ai_intel'
+                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                : 'bg-white/5 text-slate-500 border border-white/10 hover:bg-white/10'
+                        }`}
+                    >
+                        🏆 AI_INTEL
+                    </button>
                 </div>
 
                 {/* Content Area - Takes remaining space */}
@@ -78,10 +91,16 @@ const Dashboard = () => {
                                 <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.2)_50%)] bg-[length:100%_4px] pointer-events-none opacity-30" />
                             </div>
                         </>
-                    ) : (
+                    ) : activeTab === 'cluster' ? (
                         <div className="flex-1 overflow-auto p-3 space-y-4">
                             <AIPipeline />
                             <ClusterMetrics />
+                        </div>
+                    ) : (
+                        <div className="flex-1 overflow-auto p-3 space-y-4">
+                            <CostMetrics />
+                            <QueryInterface />
+                            <DailySummary />
                         </div>
                     )}
                 </div>

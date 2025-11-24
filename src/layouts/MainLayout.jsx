@@ -100,12 +100,23 @@ const MainLayout = ({ children }) => {
             <main className="flex-1 h-full overflow-hidden relative flex flex-col">
                 {/* Top Bar (Optional, for breadcrumbs or status) */}
                 <header className="h-16 border-b border-white/5 bg-obsidian/50 backdrop-blur-sm flex items-center justify-between px-8 z-30">
-                    <div className="flex items-center gap-2 text-sm font-mono text-slate-400">
-                        <span className="text-neon-blue">root</span>
-                        <span>/</span>
-                        <span className="text-white tracking-wider uppercase">{location.pathname === '/' ? 'dashboard' : location.pathname.slice(1)}</span>
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2 text-sm font-mono text-slate-400">
+                            <span className="text-neon-blue">root</span>
+                            <span>/</span>
+                            <span className="text-white tracking-wider uppercase">{location.pathname === '/' ? 'dashboard' : location.pathname.slice(1)}</span>
+                        </div>
+                        {/* Parallax Competition Badge - VERY VISIBLE */}
+                        <div className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600/20 to-purple-600/20 border border-indigo-500/50 flex items-center gap-2 shadow-[0_0_15px_rgba(99,102,241,0.3)] animate-pulse">
+                            <span className="text-[10px] font-bold text-white tracking-wider">POWERED BY</span>
+                            <span className="text-sm font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">PARALLAX</span>
+                            <span className="text-[8px] px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 rounded font-bold">AI LAB 2025</span>
+                        </div>
                     </div>
                     <div className="flex items-center gap-4">
+                        <div className="px-3 py-1 rounded border border-neon-green/30 bg-neon-green/5 text-neon-green text-xs font-mono tracking-widest shadow-[0_0_10px_rgba(10,255,104,0.2)]">
+                            100% LOCAL AI
+                        </div>
                         <div className="px-3 py-1 rounded border border-neon-blue/30 bg-neon-blue/5 text-neon-blue text-xs font-mono tracking-widest shadow-[0_0_10px_rgba(0,243,255,0.2)]">
                             SECURE CONNECTION
                         </div>
