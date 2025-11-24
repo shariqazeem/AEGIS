@@ -1,0 +1,129 @@
+import React, { useState, useEffect } from 'react';
+import { clsx } from 'clsx';
+import { DocumentTextIcon, ChartBarIcon, ShieldCheckIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+
+const DailySummary = () => {
+    const [summary, setSummary] = useState(null);
+    const [loading, setLoading] = useState(false);
+
+    const fetchSummary = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch('http://localhost:8001/summary');
+            const data = await res.json();
+            setSummary(data);
+        } catch (err) {
+            setSummary({ success: false, error: err.message });
+        }
+        setLoading(false);
+    };
+
+    useEffect(() => {
+        fetchSummary();
+        // Refresh every 5 minutes
+        const interval = setInterval(fetchSummary, 5 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const getRiskColor = (level) => {
+        switch(level) {
+            case 'low': return 'text-green-400';
+            case 'medium': return 'text-yellow-400';
+            case 'high': return 'text-red-400';
+            default: return 'text-slate-400';
+        }
+    };
+
+    const getRiskIcon = (level) => {
+        switch(level) {
+            case 'low': return ShieldCheckIcon;
+            case 'medium': case 'high': return ExclamationTriangleIcon;
+            default: return ChartBarIcon;
+        }
+    };
+
+    if (loading && !summary) {
+        return (
+            <div className="bg-obsidian/50 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
+                <div className="animate-pulse">
+                    <div className="h-4 bg-white/10 rounded w-3/4 mb-4"></div>
+                    <div className="h-3 bg-white/10 rounded w-1/2"></div>
+                </div>
+            </div>
+        );
+    }
+
+    if (!summary || !summary.success) {
+        return (
+            <div className="bg-obsidian/50 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
+                <p className="text-slate-400 text-sm">Daily summary unavailable</p>
+            </div>
+        );
+    }
+
+    const RiskIcon = getRiskIcon(summary.risk_level);
+
+    return (
+        <div className="bg-obsidian/50 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                    <DocumentTextIcon className="w-6 h-6 text-neon-blue" />
+                    <h2 className="text-xl font-bold text-white">Daily Summary</h2>
+                </div>
+                <span className="text-xs text-neon-blue/70 font-mono">🏆 AI-POWERED</span>
+            </div>
+
+            {/* Summary Text */}
+            <p className="text-slate-300 mb-4 leading-relaxed">{summary.summary}</p>
+
+            {/* Stats Grid */}
+            {summary.stats && (
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div className="bg-black/30 border border-white/10 rounded-lg p-3">
+                        <p className="text-xs text-slate-400 mb-1">Total Events</p>
+                        <p className="text-2xl font-bold text-white">{summary.stats.total_events}</p>
+                    </div>
+                    <div className="bg-black/30 border border-white/10 rounded-lg p-3">
+                        <p className="text-xs text-slate-400 mb-1">Threats</p>
+                        <p className={clsx(
+                            "text-2xl font-bold",
+                            summary.stats.threats_detected > 0 ? "text-red-400" : "text-green-400"
+                        )}>
+                            {summary.stats.threats_detected}
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Risk Level */}
+            <div className="flex items-center justify-between p-3 bg-black/30 border border-white/10 rounded-lg">
+                <div className="flex items-center gap-2">
+                    <RiskIcon className={clsx("w-5 h-5", getRiskColor(summary.risk_level))} />
+                    <span className="text-sm text-slate-300">Risk Level</span>
+                </div>
+                <span className={clsx("font-bold uppercase text-sm", getRiskColor(summary.risk_level))}>
+                    {summary.risk_level}
+                </span>
+            </div>
+
+            {/* Refresh Button */}
+            <button
+                onClick={fetchSummary}
+                disabled={loading}
+                className="mt-4 w-full py-2 bg-neon-blue/10 border border-neon-blue/30 rounded-lg hover:bg-neon-blue/20 transition-colors text-neon-blue text-sm font-medium"
+            >
+                {loading ? "Refreshing..." : "Refresh Summary"}
+            </button>
+
+            {/* Powered by */}
+            <div className="mt-3 text-center">
+                <p className="text-xs text-slate-500">
+                    Generated by <span className="text-neon-blue font-semibold">Parallax AI</span>
+                </p>
+            </div>
+        </div>
+    );
+};
+
+export default DailySummary;

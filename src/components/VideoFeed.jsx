@@ -10,10 +10,12 @@ const VideoFeed = ({ className }) => {
     const [isTestMode, setIsTestMode] = useState(false);
     const [showCameraSelect, setShowCameraSelect] = useState(false);
     const [currentScenario, setCurrentScenario] = useState("");
+    const [streamKey, setStreamKey] = useState(0);
     const imgRef = useRef(null);
 
     // Use the same port as the sentinel API (8001)
-    const VIDEO_SERVER_URL = "http://localhost:8001/video_feed";
+    // Add cache-busting parameter to prevent browser caching
+    const VIDEO_SERVER_URL = `http://localhost:8001/video_feed?t=${streamKey}`;
 
     useEffect(() => {
         const checkConnection = async () => {
@@ -66,6 +68,17 @@ const VideoFeed = ({ className }) => {
         return () => clearInterval(interval);
     }, []);
 
+    // Force stream refresh every 30 seconds to prevent freezing
+    useEffect(() => {
+        if (!isConnected) return;
+
+        const refreshInterval = setInterval(() => {
+            setStreamKey(prev => prev + 1);
+        }, 30000);  // Refresh every 30 seconds
+
+        return () => clearInterval(refreshInterval);
+    }, [isConnected]);
+
     const selectCamera = async (index) => {
         try {
             const res = await fetch(`http://localhost:8001/cameras/select/${index}`, {
@@ -76,6 +89,8 @@ const VideoFeed = ({ className }) => {
                 if (data.success) {
                     setCurrentCamera(index);
                     setShowCameraSelect(false);
+                    // Force stream refresh when camera changes
+                    setStreamKey(prev => prev + 1);
                 }
             }
         } catch (err) {
@@ -99,8 +114,11 @@ const VideoFeed = ({ className }) => {
                     alt="Live Feed"
                     className="absolute inset-0 w-full h-full object-cover z-10"
                     onError={() => {
-                        console.error("Video stream error");
-                        setIsConnected(false);
+                        console.error("Video stream error - attempting reconnect");
+                        // Try to reconnect after brief delay
+                        setTimeout(() => {
+                            setStreamKey(prev => prev + 1);
+                        }, 1000);
                     }}
                     onLoad={() => console.log("Video stream connected")}
                 />
