@@ -114,6 +114,7 @@ JSON response format:
                     cleaned_content = clean_json_response(content)
                     result = json.loads(cleaned_content)
                     return {
+                        "success": True,
                         "answer": result.get("answer", content),
                         "confidence": result.get("confidence", 0.8),
                         "supporting_events": events[:5],  # Top 5 relevant events
@@ -123,6 +124,7 @@ JSON response format:
                 except json.JSONDecodeError:
                     # Fallback if AI doesn't return JSON
                     return {
+                        "success": True,
                         "answer": content,
                         "confidence": 0.7,
                         "supporting_events": events[:5],
@@ -133,6 +135,7 @@ JSON response format:
                 # Response is None or malformed
                 error_msg = f"Invalid response from Parallax: {response}"
                 return {
+                    "success": False,
                     "answer": error_msg,
                     "confidence": 0.0,
                     "supporting_events": [],
@@ -142,6 +145,7 @@ JSON response format:
 
         except Exception as e:
             return {
+                "success": False,
                 "answer": f"Error processing query: {str(e)}",
                 "confidence": 0.0,
                 "supporting_events": [],
@@ -295,6 +299,7 @@ JSON response:
                     cleaned_content = clean_json_response(content)
                     result = json.loads(cleaned_content)
                     return {
+                        "success": True,
                         "summary": result.get("summary", content),
                         "highlights": result.get("highlights", []),
                         "risk_level": result.get("risk_level", "low"),
@@ -303,6 +308,7 @@ JSON response:
                     }
                 except json.JSONDecodeError:
                     return {
+                        "success": True,
                         "summary": content,
                         "highlights": [],
                         "risk_level": "low",
@@ -313,6 +319,7 @@ JSON response:
                 # Response is None or malformed
                 error_msg = f"Invalid response from Parallax: {response}"
                 return {
+                    "success": False,
                     "summary": error_msg,
                     "highlights": [],
                     "risk_level": "unknown",
@@ -322,6 +329,7 @@ JSON response:
 
         except Exception as e:
             return {
+                "success": False,
                 "summary": f"Error generating summary: {str(e)}",
                 "highlights": [],
                 "risk_level": "unknown",

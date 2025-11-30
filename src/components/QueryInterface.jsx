@@ -25,6 +25,11 @@ const QueryInterface = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ question: questionToAsk })
             });
+
+            if (!res.ok) {
+                throw new Error(`Server error: ${res.status}`);
+            }
+
             const data = await res.json();
             setAnswer(data);
         } catch (err) {

@@ -49,13 +49,31 @@ from fastapi.responses import StreamingResponse
 import uvicorn
 
 # =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def get_detection_color(label: str) -> tuple:
+    """Get BGR color for detection box based on object type."""
+    label_lower = label.lower()
+    if label_lower in ['knife', 'scissors', 'gun', 'fire', 'weapon']:
+        return (0, 0, 255)  # Red - THREAT
+    elif label_lower == 'person':
+        return (255, 255, 0)  # Cyan - People
+    elif label_lower in ['cell phone', 'phone', 'laptop', 'tv', 'remote']:
+        return (0, 255, 0)  # Green - Electronics
+    else:
+        return (0, 255, 255)  # Yellow - Other
+
+# =============================================================================
 # SHARED STATE FOR API
 # =============================================================================
 
 class SystemState:
     """Shared state between sentinel and API"""
     def __init__(self):
-        self.logs = deque(maxlen=200)  # Keep last 200 logs
+        self.logs = deque(maxlen=200)  # Keep last 200 logs (all logs)
+        self.presentation_logs = deque(maxlen=100)  # Clean AI responses for judges
+        self.technical_logs = deque(maxlen=200)  # Detailed stage logs for debugging
         self.threats = deque(maxlen=100)  # Keep last 100 threat events
         self.threat_level = "SAFE"
         self.last_description = ""
@@ -64,6 +82,9 @@ class SystemState:
         self.parallax_connected = False
         self.camera_active = False
         self.last_features = {}
+        self.detection_boxes = []  # YOLO bounding boxes for video overlay
+        self.immediate_threat_detected = False  # Flag for fast-path threat detection
+        self.threat_objects_realtime = []  # Critical threats from video loop
         self._subscribers = []  # SSE subscribers
         self._lock = threading.Lock()
         self._event_counter = 0  # For event IDs
@@ -194,6 +215,12 @@ class Config:
     """System configuration"""
     CAMERA_INDEX = 0
 
+    # 🏆 COMPETITION PRESENTATION MODE
+    # When True: Shows clean AI responses for judges (hides technical stages)
+    # When False: Shows detailed technical logs for debugging
+    # Frontend will filter logs by category - keep this False
+    PRESENTATION_MODE = False  # Frontend handles filtering!
+
     # Performance Modes for M1 Air
     # - "performance": 2.5s interval, real AI (use when plugged in)
     # - "balanced": 5s interval, real AI (recommended for M1 Air)
@@ -258,35 +285,71 @@ class Config:
     USE_PARALLAX_FOR_RISK_SCORING = True         # Stage 7: Intelligent risk assessment
 
     # Multi-Model YOLO Configuration (class-specific confidence)
-    # ULTRA LOW thresholds for YOLO-World - it gives lower confidence scores than standard YOLO!
-    # Your phone was detected at 0.05, so we need thresholds below that
-    YOLO_CONFIDENCE_THRESHOLDS = {
-        "person": 0.20,      # People detection (high confidence usually)
-        "face": 0.05,        # Face - YOLO-World gives ~0.13
-        "hand": 0.05,        # Hand - YOLO-World gives ~0.11
-        "knife": 0.03,       # ULTRA LOW - don't miss knives!
-        "blade": 0.03,
-        "kitchen knife": 0.03,
-        "chef knife": 0.03,
-        "weapon": 0.03,
-        "gun": 0.03,
-        "pistol": 0.03,
-        "scissors": 0.05,
-        "fire": 0.05,        # ULTRA LOW - don't miss fire!
-        "flame": 0.05,
-        "lighter": 0.05,
-        "torch": 0.05,
-        "smoke": 0.08,
-        "cell phone": 0.03,  # ULTRA LOW - your phone was at 0.05!
-        "phone": 0.03,
-        "smartphone": 0.03,
-        "mobile phone": 0.03,
-        "laptop": 0.10,
-        "computer": 0.10,
-        "cup": 0.10,
-        "bottle": 0.10,
-        "bag": 0.10,
-        "default": 0.08      # Low default
+    # 🎯 TWO-TIER THRESHOLD SYSTEM:
+    # 1. ANALYSIS_THRESHOLD: Lower - for telling Parallax AI what's in the scene
+    # 2. DISPLAY_THRESHOLD: Higher - for showing bounding boxes (prevents clutter)
+
+    MINIMUM_CONFIDENCE_FOR_ANALYSIS = 0.15   # 15% - send to Parallax for analysis
+    MINIMUM_CONFIDENCE_FOR_DISPLAY = 0.25    # 25% - show bounding box on video
+
+    # Class-specific thresholds for ANALYSIS (lower - catch everything for AI)
+    YOLO_ANALYSIS_THRESHOLDS = {
+        "person": 0.15,       # People - lowered to catch all persons in scene
+        "face": 0.12,
+        "hand": 0.12,
+        "knife": 0.10,        # CRITICAL - very low for threats
+        "blade": 0.10,
+        "scissors": 0.12,
+        "weapon": 0.10,
+        "gun": 0.10,
+        "pistol": 0.10,
+        "fire": 0.12,
+        "flame": 0.12,
+        "cell phone": 0.15,   # Phones
+        "phone": 0.15,
+        "laptop": 0.18,
+        "tv": 0.20,
+        "remote": 0.15,
+        "cup": 0.18,
+        "bottle": 0.18,
+        "chair": 0.18,        # Furniture - lower threshold
+        "couch": 0.15,        # Couch - lower threshold
+        "sofa": 0.15,
+        "clock": 0.18,
+        "book": 0.15,
+        "bag": 0.18,
+        "backpack": 0.18,
+        "default": 0.15       # Default for analysis
+    }
+
+    # Class-specific thresholds for DISPLAY (higher - only show confident boxes)
+    YOLO_DISPLAY_THRESHOLDS = {
+        "person": 0.30,       # Only show clear person detections
+        "face": 0.20,
+        "hand": 0.20,
+        "knife": 0.15,        # Lower for threats - we want to see these!
+        "blade": 0.15,
+        "scissors": 0.20,
+        "weapon": 0.15,
+        "gun": 0.15,
+        "pistol": 0.15,
+        "fire": 0.20,
+        "flame": 0.20,
+        "cell phone": 0.25,
+        "phone": 0.25,
+        "laptop": 0.30,
+        "tv": 0.35,
+        "remote": 0.25,
+        "cup": 0.30,
+        "bottle": 0.30,
+        "chair": 0.30,
+        "couch": 0.30,
+        "sofa": 0.30,
+        "clock": 0.30,
+        "book": 0.25,
+        "bag": 0.30,
+        "backpack": 0.30,
+        "default": 0.25       # Default for display
     }
 
     # Pose estimation for fall detection (MediaPipe)
@@ -330,17 +393,19 @@ config = Config()
 # LOGGING TO STDOUT (for Tauri to capture)
 # =============================================================================
 
-def log_event(event_type: str, message: str, level: str = "INFO"):
+def log_event(event_type: str, message: str, level: str = "INFO", category: str = "TECHNICAL"):
     """
     Structured logging to stdout for Tauri frontend + API
 
     Output format: [TIMESTAMP] LEVEL: MESSAGE
     Special keywords that Tauri listens for: THREAT, SAFE, CRITICAL
+
+    Categories:
+    - PRESENTATION: Clean AI responses for judges (shown in main view)
+    - TECHNICAL: Stage logs, debug info (shown in debug tab)
     """
     timestamp = datetime.now().strftime("%H:%M:%S")
     iso_timestamp = datetime.now().isoformat()
-    log_line = f"[{timestamp}] {level}: {message}"
-    print(log_line, flush=True)
 
     # Store in shared state for API
     log_entry = {
@@ -348,9 +413,26 @@ def log_event(event_type: str, message: str, level: str = "INFO"):
         "time": timestamp,
         "level": level,
         "type": event_type,
-        "message": message
+        "message": message,
+        "category": category
     }
     system_state.add_log(log_entry)
+
+    # Add to appropriate log stream
+    if category == "PRESENTATION":
+        system_state.presentation_logs.append(log_entry)
+    system_state.technical_logs.append(log_entry)
+
+    # In presentation mode, only print PRESENTATION logs (+ CRITICAL always)
+    should_print = (
+        level == "CRITICAL" or  # Always print critical
+        not config.PRESENTATION_MODE or  # Print all if not in presentation mode
+        category == "PRESENTATION"  # Print presentation logs in presentation mode
+    )
+
+    if should_print:
+        log_line = f"[{timestamp}] {level}: {message}"
+        print(log_line, flush=True)
 
     # Update threat level in state
     if level == "CRITICAL":
@@ -697,7 +779,7 @@ class VisionSystem:
         # === FIRE DETECTION ===
         # High red/orange + motion + flickering = possible fire
         # Require BOTH high color AND motion for fire (not just color)
-        if red_pct > 25 and motion > 15:
+        if red_pct > 25 and orange_pct > 15 and motion > 10:
             threats.append("possible fire/flames detected")
             severity = "critical"
         elif (red_pct > 30 or orange_pct > 30) and motion > 5:
@@ -714,10 +796,11 @@ class VisionSystem:
         # - Very few edges (uniform surface)
         # - Very low contrast (uniform darkness)
         # - No faces visible
-        if brightness < 30 and edge_density < 0.005 and contrast < 20 and faces_total == 0:
+        # Fixed (more forgiving - only triggers on actual camera blocking):
+        if brightness < 12 and edge_density < 0.003 and contrast < 12:
             threats.append("camera obstructed or covered (tampering detected)")
             severity = "critical"
-        elif brightness < 50 and edge_density < 0.008 and contrast < 25 and faces_total == 0:
+        elif brightness < 20 and edge_density < 0.005 and contrast < 18:
             threats.append("possible camera obstruction (very dark, no features)")
             severity = "high"
 
@@ -925,13 +1008,14 @@ class VisionSystem:
                 # Store raw detection for debug
                 all_raw_detections.append(f"{name}:{conf:.2f}")
 
-                # 🎯 CLASS-SPECIFIC CONFIDENCE THRESHOLDS (Competition Feature!)
-                threshold = config.YOLO_CONFIDENCE_THRESHOLDS.get(
-                    name,
-                    config.YOLO_CONFIDENCE_THRESHOLDS.get("default", 0.35)
+                # 🎯 ANALYSIS THRESHOLD - Lower threshold for Parallax AI analysis
+                analysis_threshold = config.YOLO_ANALYSIS_THRESHOLDS.get(
+                    name.lower(),
+                    config.YOLO_ANALYSIS_THRESHOLDS.get("default", 0.15)
                 )
 
-                if conf >= threshold:
+                # Add to detected_objects if above ANALYSIS threshold (for Parallax)
+                if conf >= analysis_threshold and conf >= config.MINIMUM_CONFIDENCE_FOR_ANALYSIS:
                     detected_objects.append(name)
                     counts[name] = counts.get(name, 0) + 1
 
@@ -993,10 +1077,45 @@ class VisionSystem:
         if detected_objects:
             log_event("YOLO", f"✓ PASSED threshold: {', '.join(detected_objects)}", "INFO")
 
-        # Debug logging for fallen person detection
+        # Only log fallen person detections (not every person)
         if person_bboxes:
             for i, p in enumerate(person_bboxes):
-                log_event("YOLO", f"Person {i+1}: aspect_ratio={p['aspect_ratio']:.2f}, bottom_y={p['bottom_y']:.0f}/{height} ({p['bottom_y']/height*100:.0f}%), possibly_fallen={p.get('possibly_fallen', False)}", "DEBUG")
+                if p.get('possibly_fallen', False):
+                    log_event("YOLO", f"⚠️ Person {i+1}: POSSIBLY FALLEN (aspect_ratio={p['aspect_ratio']:.2f})", "WARN")
+
+        # === BUILD DETECTION BOXES FOR VIDEO OVERLAY ===
+        # Use HIGHER display thresholds to prevent clutter on video
+        detection_boxes = []
+        for result in results:
+            boxes = result.boxes
+            for box in boxes:
+                cls_id = int(box.cls[0])
+                name = self.yolo_model.names[cls_id]
+                conf = float(box.conf[0])
+
+                # Normalize name
+                name_lower = name.lower()
+                if name_lower in ["phone", "smartphone", "mobile phone"]:
+                    name = "cell phone"
+                elif name_lower in ["blade", "weapon", "kitchen knife", "chef knife"]:
+                    name = "knife"
+                elif name_lower in ["flame", "lighter", "torch"]:
+                    name = "fire"
+
+                # 🎯 DISPLAY THRESHOLD - Higher threshold for showing boxes
+                display_threshold = config.YOLO_DISPLAY_THRESHOLDS.get(
+                    name.lower(),
+                    config.YOLO_DISPLAY_THRESHOLDS.get("default", 0.25)
+                )
+
+                # Only show boxes for high-confidence detections
+                if conf >= display_threshold and conf >= config.MINIMUM_CONFIDENCE_FOR_DISPLAY:
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    detection_boxes.append({
+                        "label": name,
+                        "confidence": conf,
+                        "box": [int(x1), int(y1), int(x2), int(y2)]
+                    })
 
         return {
             "objects": detected_objects,
@@ -1006,7 +1125,8 @@ class VisionSystem:
             "person_bboxes": person_bboxes,
             "threat_objects": threat_objects,
             "possibly_fallen": possibly_fallen_count > 0,
-            "detection_count": len(detected_objects)
+            "detection_count": len(detected_objects),
+            "detection_boxes": detection_boxes  # NEW!
         }
 
     def _yolo_mode_analysis(self, frame) -> str:
@@ -1038,6 +1158,7 @@ class VisionSystem:
             # Run real YOLO detection
             try:
                 yolo_results = self._yolo_analysis(frame)
+                system_state.detection_boxes = yolo_results.get('detection_boxes', [])
                 features['yolo_objects'] = yolo_results.get('objects', [])
                 features['yolo_counts'] = yolo_results.get('counts', {})
                 features['yolo_summary'] = yolo_results.get('summary', '')
@@ -1898,8 +2019,8 @@ Be concise and professional. Highlight any patterns or critical events."""
         activity = "high motion" if motion > 20 else "some motion" if motion > 5 else "still"
         visibility = "very low (possibly blocked)" if edge_density < 0.008 and contrast < 25 else "reduced" if edge_density < 0.02 else "clear"
 
-        # Debug logging for detection decision
-        log_event("AI", f"Detection check: possibly_fallen={possibly_fallen}, motion={motion:.1f}, activity={activity}", "DEBUG")
+        # Debug logging for detection decision (commented to reduce log spam)
+        # log_event("AI", f"Detection: fallen={possibly_fallen}, motion={motion:.1f}", "DEBUG")
 
         # Check for ACTUAL threat indicators from YOLO
         yolo_objects = features.get('yolo_objects', [])
@@ -1913,19 +2034,25 @@ Be concise and professional. Highlight any patterns or critical events."""
         if has_fire_colors:
             log_event("AI", f"🔥 FIRE COLORS: red={red_pct:.1f}%, orange={orange_pct:.1f}%, motion={motion:.1f}", "DEBUG")
 
-        # Build natural scene context
+        # Build detailed scene context with ALL objects and counts
+        yolo_counts = features.get('yolo_counts', {})
         scene_items = []
-        if faces > 0:
-            scene_items.append(f"{faces} person{'s' if faces > 1 else ''}")
-        for obj in ['cell phone', 'laptop', 'tv', 'chair', 'cup', 'bottle']:
-            if obj in yolo_objects:
-                scene_items.append(obj)
-        # Add detected threats
-        if 'knife' in yolo_objects:
-            scene_items.append("KNIFE DETECTED")
-        if 'scissors' in yolo_objects:
-            scene_items.append("SCISSORS DETECTED")
+
+        # Add ALL detected objects with counts (not just a few!)
+        for obj, count in yolo_counts.items():
+            if obj in ['knife', 'scissors', 'gun', 'weapon']:
+                scene_items.append(f"⚠️ {count} {obj.upper()}(S) DETECTED")
+            else:
+                scene_items.append(f"{count} {obj}(s)")
+
         scene_context = ", ".join(scene_items) if scene_items else "empty room"
+
+        # Additional context
+        object_types = list(yolo_counts.keys())
+        num_objects = len(object_types)
+        has_people = 'person' in object_types
+        has_furniture = any(obj in object_types for obj in ['chair', 'couch', 'sofa', 'bed'])
+        has_electronics = any(obj in object_types for obj in ['cell phone', 'laptop', 'tv', 'remote', 'clock'])
 
         # If weapon or fire detected, prompt for threat
         if has_weapon:
@@ -1966,15 +2093,39 @@ This IS a threat. Respond with threat=true.
 JSON response:
 {{"threat": true, "type": "fallen_person", "severity": "critical", "confidence": 0.85, "reasoning": "Person detected at ground level with no movement - possible medical emergency"}}"""
         else:
-            prompt = f"""Home security camera check. Describe the scene naturally.
+            # Build dynamic, specific prompt with ALL detected objects
+            room_description = []
+            if has_people:
+                room_description.append(f"{yolo_counts.get('person', 0)} person(s)")
+            if has_furniture:
+                furniture_items = [f"{yolo_counts[obj]} {obj}(s)" for obj in ['chair', 'couch', 'sofa', 'bed'] if obj in yolo_counts]
+                room_description.append(f"furniture: {', '.join(furniture_items)}")
+            if has_electronics:
+                electronics_items = [f"{yolo_counts[obj]} {obj}(s)" for obj in ['cell phone', 'laptop', 'tv', 'remote', 'clock'] if obj in yolo_counts]
+                room_description.append(f"electronics: {', '.join(electronics_items)}")
 
-Detected: {scene_context}
-Lighting: {light_level} | Activity: {activity}
+            room_summary = ". ".join(room_description) if room_description else "Empty room"
 
-Normal scene. People with phones/laptops = normal residents.
+            prompt = f"""Analyze this security camera scene and provide a SPECIFIC, VARIED description.
 
-JSON response:
-{{"threat": false, "type": "normal", "severity": "low", "confidence": 0.95, "reasoning": "Natural description like: Person relaxing with phone. Quiet evening scene."}}"""
+OBJECTS DETECTED ({num_objects} types):
+{scene_context}
+
+ENVIRONMENT:
+- Lighting: {light_level}
+- Activity level: {activity}
+- Room summary: {room_summary}
+
+Describe what you see SPECIFICALLY mentioning the actual objects detected. Vary your description - don't repeat the same phrases. Be natural and observant.
+
+Examples of varied descriptions:
+- "Living room scene with person seated on couch near lamp"
+- "Person at desk with laptop and phone, clock visible on wall"
+- "Quiet room with person in chair, TV and remote nearby"
+- "Home office setup - person working with computer and clock visible"
+
+JSON response (be specific about what you actually see):
+{{"threat": false, "type": "normal", "severity": "low", "confidence": 0.95, "reasoning": "Your specific description here"}}"""
 
         try:
             start_time = time.time()
@@ -2011,7 +2162,13 @@ JSON response:
                             if isinstance(is_threat, str):
                                 is_threat = is_threat.lower() == 'true'
 
-                            log_event("PARALLAX", f"🧠 AI Analysis ({inference_time_ms:.0f}ms): {result.get('type', 'unknown')} - {result.get('reasoning', '')[:80]}", "INFO")
+                            log_event("PARALLAX", f"🧠 AI Analysis ({inference_time_ms:.0f}ms): {result.get('type', 'unknown')} - {result.get('reasoning', '')[:80]}", "INFO", category="TECHNICAL")
+
+                            # Add clean PRESENTATION log with AI reasoning
+                            event_type = result.get('type', 'unknown')
+                            reasoning = result.get('reasoning', '')
+                            log_event("AI", f"💭 Parallax AI: \"{reasoning}\"", "INFO", category="PRESENTATION")
+                            log_event("AI", f"📊 Assessment: {event_type.upper()} - {result.get('severity', 'low')} risk", "INFO", category="PRESENTATION")
 
                             return {
                                 "threat_detected": is_threat,
@@ -2273,7 +2430,10 @@ Respond with ONLY valid JSON:
                     if content:
                         result = self._extract_json(content)
                         if result:
-                            log_event("PARALLAX", f"🎯 Stage 7 Risk: {result.get('risk_level', 'LOW')} ({result.get('risk_score', 0)}) ({inference_time_ms:.0f}ms)", "DEBUG")
+                            risk_level = result.get('risk_level', 'LOW')
+                            # Only log if not LOW or if very slow
+                            if risk_level != 'LOW' or inference_time_ms > 15000:
+                                log_event("PARALLAX", f"🎯 Stage 7 Risk: {risk_level} ({inference_time_ms:.0f}ms)", "INFO" if risk_level != 'LOW' else "DEBUG")
                             return result
 
         except Exception as e:
@@ -2568,7 +2728,8 @@ class AegisSentinel:
         timestamp = datetime.now().strftime("%H:%M:%S")
 
         # === STAGE 1: Vision Analysis (Parallax Scene Interpretation) ===
-        log_event("STAGE1", f"👁️ Stage 1: Scene Interpretation (Scan #{self.scan_count})", "INFO")
+        log_event("STAGE1", f"👁️ Stage 1: Scene Interpretation (Scan #{self.scan_count})", "INFO", category="TECHNICAL")
+        log_event("AI", f"🔍 Analyzing scene... (Scan #{self.scan_count})", "INFO", category="PRESENTATION")
 
         # In TEST MODE: Use pre-injected features from _generate_test_frame(), skip YOLO
         if self.test_mode:
@@ -2592,7 +2753,7 @@ class AegisSentinel:
         system_state.last_features = getattr(self.vision, 'last_features', {})
 
         # === STAGE 2: Threat Detection via PARALLAX AI ===
-        log_event("STAGE2", f"🎯 Stage 2: Threat Detection (Parallax AI)", "INFO")
+        log_event("STAGE2", f"🎯 Stage 2: Threat Detection (Parallax AI)", "INFO", category="TECHNICAL")
         # 🔥 KEY COMPETITION FEATURE: Parallax AI makes the threat decision!
         # This shows real AI inference on the Parallax cluster
         features = getattr(self.vision, 'last_features', {})
@@ -2604,15 +2765,15 @@ class AegisSentinel:
         contrast = features.get('contrast', 50)
         yolo_objects = features.get('yolo_objects', [])
 
-        # Debug logging for camera blocking detection
-        log_event("DEBUG", f"Camera blocking check: brightness={brightness:.1f}, edge_density={edge_density:.4f}, contrast={contrast:.1f}, objects={len(yolo_objects)}", "DEBUG")
+        # Debug logging only for suspicious values (saves log spam)
+        # log_event("DEBUG", f"Camera check: brightness={brightness:.1f}, edges={edge_density:.4f}", "DEBUG")
 
         # Camera blocking detection - don't rely on objects count since YOLO may have stale detections
         # Instead, rely on visual features that indicate uniform dark surface
         camera_blocked = (
-            brightness < 15 and          # Very dark (pitch black)
-            edge_density < 0.005 and     # Almost no edges (uniform surface)
-            contrast < 15                # Very low contrast (no variation)
+            brightness < 12 and          # Pitch black
+            edge_density < 0.003 and     # Almost no edges
+            contrast < 12                # No variation at all
         )
 
         if camera_blocked:
@@ -2923,8 +3084,43 @@ class AegisSentinel:
                         frame = system_state.current_frame.copy() if system_state.current_frame is not None else None
 
                 if frame is not None:
-                    # Process frame for AI analysis (video thread handles display)
-                    analysis = self.process_frame(frame)
+                    # 🚨 FAST-PATH: Check for immediate threats from video loop
+                    if system_state.immediate_threat_detected and system_state.threat_objects_realtime:
+                        # Critical threat detected - immediate response!
+                        for threat in system_state.threat_objects_realtime:
+                            threat_type = threat['type']
+                            confidence = threat['confidence']
+
+                            # Update threat level immediately
+                            system_state.threat_level = "CRITICAL"
+                            system_state.threat_count += 1
+
+                            # Log critical threat
+                            log_event("THREAT", f"🚨 {threat_type.upper()} DETECTED ({confidence:.0%}) - IMMEDIATE ALERT!", "CRITICAL")
+
+                            # Save screenshot
+                            screenshot_id = f"THREAT-{system_state.threat_count:04d}"
+                            self.vision._save_threat_screenshot(frame, screenshot_id, threat_type)
+
+                            # Add to threat log
+                            threat_event = {
+                                "id": screenshot_id,
+                                "type": threat_type,
+                                "confidence": confidence,
+                                "timestamp": time.time(),
+                                "description": f"{threat_type.upper()} detected with {confidence:.0%} confidence"
+                            }
+                            system_state.threats.append(threat_event)
+
+                        # Clear immediate threat flag
+                        system_state.immediate_threat_detected = False
+
+                        # Still do full analysis but with urgency
+                        log_event("THREAT", "⚡ Running full threat analysis...", "INFO")
+                        analysis = self.process_frame(frame)
+                    else:
+                        # Normal processing
+                        analysis = self.process_frame(frame)
                 else:
                     log_event("WARN", "No frame available", "WARN")
 
@@ -3334,6 +3530,8 @@ class AegisSentinel:
         def video_capture_loop():
             import numpy as np
             frame_time = 1.0 / 30  # Target 30 FPS
+            detection_interval = 3  # Run YOLO every 3 frames (~10 FPS)
+            frame_counter = 0
 
             # For test mode, load sample images or generate animated frames
             test_frame_counter = 0
@@ -3353,6 +3551,61 @@ class AegisSentinel:
                             if not ret or frame is None:
                                 time.sleep(frame_time)
                                 continue
+
+                            # === RUN YOLO FOR REAL-TIME BOUNDING BOXES ===
+                            frame_counter += 1
+                            if frame_counter % detection_interval == 0 and self.vision.yolo_model:
+                                try:
+                                    # Run YOLO with low threshold to catch everything, then filter properly
+                                    results = self.vision.yolo_model(frame, verbose=False, conf=0.10)
+                                    detection_boxes = []
+
+                                    threat_objects = []  # Track critical threats
+
+                                    for result in results:
+                                        for box in result.boxes:
+                                            cls_id = int(box.cls[0])
+                                            name = self.vision.yolo_model.names[cls_id]
+                                            conf = float(box.conf[0])
+
+                                            # Normalize name
+                                            name_lower = name.lower()
+                                            if name_lower in ["phone", "smartphone", "mobile phone"]:
+                                                name = "cell phone"
+                                            elif name_lower in ["blade", "weapon", "kitchen knife", "chef knife"]:
+                                                name = "knife"
+                                            elif name_lower in ["flame", "lighter", "torch"]:
+                                                name = "fire"
+
+                                            # 🚨 CRITICAL THREAT DETECTION - Immediate response!
+                                            if name.lower() in ['knife', 'gun', 'fire', 'weapon'] and conf >= 0.15:
+                                                threat_objects.append({
+                                                    "type": name,
+                                                    "confidence": conf,
+                                                    "timestamp": time.time()
+                                                })
+                                                # Set immediate threat flag for fast processing
+                                                system_state.immediate_threat_detected = True
+                                                log_event("THREAT", f"🚨 CRITICAL: {name.upper()} detected ({conf:.0%} confidence)!", "CRITICAL")
+
+                                            # Get DISPLAY threshold (higher - for showing boxes only)
+                                            display_threshold = config.YOLO_DISPLAY_THRESHOLDS.get(
+                                                name.lower(), 0.25
+                                            )
+
+                                            # Only show boxes for high-confidence detections
+                                            if conf >= display_threshold and conf >= config.MINIMUM_CONFIDENCE_FOR_DISPLAY:
+                                                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                                                detection_boxes.append({
+                                                    "label": name,
+                                                    "confidence": conf,
+                                                    "box": [int(x1), int(y1), int(x2), int(y2)]
+                                                })
+
+                                    system_state.detection_boxes = detection_boxes
+                                    system_state.threat_objects_realtime = threat_objects
+                                except:
+                                    pass
                         else:
                             time.sleep(frame_time)
                             continue
@@ -3525,10 +3778,30 @@ async def get_status():
 
 @api.get("/logs")
 async def get_logs(limit: int = 50):
-    """Get recent logs"""
+    """Get recent logs (all)"""
     return {
         "logs": system_state.get_logs(limit),
         "threat_level": system_state.threat_level
+    }
+
+@api.get("/presentation_logs")
+async def get_presentation_logs(limit: int = 50):
+    """Get clean AI responses for judges (presentation mode)"""
+    logs = list(system_state.presentation_logs)[-limit:]
+    return {
+        "logs": logs,
+        "threat_level": system_state.threat_level,
+        "mode": "presentation"
+    }
+
+@api.get("/technical_logs")
+async def get_technical_logs(limit: int = 100):
+    """Get detailed technical logs with stages (debug mode)"""
+    logs = list(system_state.technical_logs)[-limit:]
+    return {
+        "logs": logs,
+        "threat_level": system_state.threat_level,
+        "mode": "technical"
     }
 
 @api.get("/events")
@@ -3786,45 +4059,91 @@ async def video_feed():
         while True:
             frame = None
 
-            # Use the shared current_frame from system_state (updated by video thread at 30 FPS)
             if system_state.current_frame is not None:
                 frame = system_state.current_frame.copy()
 
             if frame is not None:
-                # For live camera, add minimal overlay (test mode frames already have overlays)
-                if not system_state.test_mode:
-                    height, width = frame.shape[:2]
-                    # Add LIVE indicator
-                    cv2.putText(frame, "LIVE", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    # Add threat status
-                    threat_color = (0, 0, 255) if system_state.threat_level in ["CRITICAL", "THREAT DETECTED"] else (0, 255, 0)
-                    cv2.putText(frame, f"STATUS: {system_state.threat_level}", (width - 250, 30),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, threat_color, 2)
-                    # Add scan count
-                    cv2.putText(frame, f"SCAN #{system_state.scan_count}", (10, height - 20),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+                height, width = frame.shape[:2]
 
-                # Encode frame as JPEG (lower quality = faster streaming)
-                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+                # === DRAW BOUNDING BOXES FROM YOLO ===
+                detection_boxes = getattr(system_state, 'detection_boxes', [])
+                for det in detection_boxes:
+                    x1, y1, x2, y2 = det['box']
+                    label = det['label']
+                    conf = det['confidence']
+
+                    # Color based on object type
+                    label_lower = label.lower()
+                    if label_lower in ['knife', 'scissors', 'gun', 'fire']:
+                        color = (0, 0, 255)  # Red
+                    elif label_lower == 'person':
+                        color = (255, 255, 0)  # Cyan
+                    elif label_lower in ['cell phone', 'laptop', 'tv', 'remote']:
+                        color = (0, 255, 0)  # Green
+                    else:
+                        color = (0, 255, 255)  # Yellow
+
+                    # Draw box
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+                    # Draw label with background
+                    label_text = f"{label} {conf:.0%}"
+                    (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                    cv2.rectangle(frame, (x1, y1 - th - 8), (x1 + tw + 4, y1), color, -1)
+                    cv2.putText(frame, label_text, (x1 + 2, y1 - 4),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
+                # === TOP BAR ===
+                cv2.rectangle(frame, (0, 0), (width, 45), (20, 20, 20), -1)
+                cv2.putText(frame, "AEGIS SENTINEL", (10, 30),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 200, 100), 2)
+
+                # Threat status
+                if system_state.threat_level in ["CRITICAL", "THREAT DETECTED"]:
+                    cv2.putText(frame, "!! THREAT !!", (220, 30),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                else:
+                    cv2.putText(frame, "SECURE", (220, 30),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                cv2.putText(frame, "PARALLAX AI", (width - 150, 30),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (188, 100, 255), 2)
+
+                # === BOTTOM BAR ===
+                cv2.rectangle(frame, (0, height - 45), (width, height), (20, 20, 20), -1)
+
+                det_count = len(detection_boxes)
+                cv2.putText(frame, f"OBJECTS: {det_count}", (10, height - 15),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
+                cv2.putText(frame, f"SCAN #{system_state.scan_count}", (180, height - 15),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+
+                # Object list
+                if detection_boxes:
+                    obj_list = ", ".join(set(d['label'] for d in detection_boxes[:5]))
+                    cv2.putText(frame, obj_list[:50], (350, height - 15),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 255, 100), 1)
+
+                # Live indicator
+                cv2.circle(frame, (width - 25, height - 22), 6, (0, 0, 255), -1)
+                cv2.putText(frame, "LIVE", (width - 70, height - 15),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 frame_bytes = buffer.tobytes()
-
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
             else:
-                # Generate placeholder frame with helpful message
                 placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-                if system_state.test_mode:
-                    cv2.putText(placeholder, "STARTING TEST MODE...", (150, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-                    cv2.putText(placeholder, "Waiting for first frame", (180, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
-                else:
-                    cv2.putText(placeholder, "WAITING FOR CAMERA...", (160, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (100, 100, 100), 2)
-                    cv2.putText(placeholder, "Start vision_sentinel.py", (185, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (80, 80, 80), 1)
+                cv2.putText(placeholder, "WAITING FOR CAMERA...", (150, 240),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (100, 100, 100), 2)
                 _, buffer = cv2.imencode('.jpg', placeholder)
                 frame_bytes = buffer.tobytes()
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-            time.sleep(0.033)  # ~30 FPS for smooth streaming
+            time.sleep(0.033)
 
     return StreamingResponse(
         generate_frames(),
