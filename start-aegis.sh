@@ -51,11 +51,19 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
+# Check if Parallax is running (simple check)
+if ! curl -s http://localhost:3001/v1/models > /dev/null; then
+    echo "${YELLOW}⚠️  WARNING: Parallax does not appear to be running on port 3001${NC}"
+    echo "   For full AI features, please run 'parallax run' in another terminal."
+    echo "   Continuing in 5 seconds..."
+    sleep 5
+fi
+
 # Start sentinel (which now includes video streaming on port 8001)
 echo "1️⃣  Starting AI Sentinel + Video Server (Port 8001)..."
 cd backend
 source venv/bin/activate
-python vision_sentinel.py > ../logs/sentinel.log 2>&1 &
+python3 vision_sentinel.py > ../logs/sentinel.log 2>&1 &
 SENTINEL_PID=$!
 cd ..
 sleep 3
