@@ -27,7 +27,7 @@ Built for the **Gradient "Build Your Own AI Lab" Hackathon** powered by Parallax
 
 ```bash
 # Start Parallax
-parallax run
+parallax run -m Qwen/Qwen3-0.6B -n 1 --host 0.0.0.0
 
 # In another terminal, join the cluster
 parallax join
@@ -61,6 +61,7 @@ python vision_sentinel.py --test
 
 ```bash
 # In the AEGIS root directory
+npm run tauri:dev OR
 npm run dev
 ```
 
@@ -216,7 +217,8 @@ AEGIS/
 
 ## 📜 License
 
-MIT License - Built for the Gradient Hackathon
+MIT License - Built for the Gradient "Build your own AI Lab" Hackathon
+
 
 ---
 
