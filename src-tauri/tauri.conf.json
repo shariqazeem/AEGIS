@@ -1,22 +1,27 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "aegis",
-  "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AEGIS",
+  "version": "3.0.0",
+  "identifier": "com.aegis.sentinel",
   "build": {
-    "frontendDist": "dist",
-    "devUrl": "http://localhost:1420",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
-        "title": "AEGIS",
-        "width": 800,
-        "height": 600,
+        "title": "AEGIS - Sovereign AI Security",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1200,
+        "minHeight": 700,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false
       }
     ],
     "security": {
@@ -32,9 +37,6 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "externalBin": [
-      "binaries/sentinel"
     ]
   }
 }
