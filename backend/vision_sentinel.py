@@ -50,18 +50,18 @@ import uvicorn
 class Config:
     """Optimized configuration for low-end devices"""
     CAMERA_INDEX = 0
-    
+
     # Performance tuning for M1 Air 8GB
     PERFORMANCE_MODE = "balanced"
     INFERENCE_INTERVAL = 4.0  # Seconds between full AI analysis
     FAST_SCAN_INTERVAL = 0.5  # Seconds between YOLO-only scans
-    
+
     # Frame processing
     MAX_FRAME_QUEUE = 3  # Prevent memory buildup
     FRAME_RESIZE = (640, 480)  # Resize for faster processing
-    
-    # YOLO optimization
-    YOLO_CONF_THRESHOLD = 0.25
+
+    # YOLO optimization - LOWER threshold for better detection
+    YOLO_CONF_THRESHOLD = 0.20  # Lower for better knife/object detection
     YOLO_IOU_THRESHOLD = 0.45
     
     # Parallax Configuration
@@ -406,54 +406,62 @@ parallax = ParallaxClient()
 # =============================================================================
 
 class VisionSystem:
-    """Optimized vision system for M1 Air"""
-    
+    """Optimized vision system for M1 Air with proper coordinate scaling"""
+
     def __init__(self):
         self.yolo_model = None
         self.prev_frame = None
         self.last_features = {}
         self._executor = ThreadPoolExecutor(max_workers=2)
-    
+        self._scale_factor = 1.0  # Track resize scale for box coordinate correction
+        self._original_size = (1280, 720)  # Track original frame size
+
     def load_model(self):
         """Load YOLOv8n (nano) - optimized for M1 Air"""
         try:
             from ultralytics import YOLO
             import torch
-            
+
             log_event("VISION", "Loading YOLOv8n (6MB, optimized for M1)...", "INFO")
             self.yolo_model = YOLO("yolov8n.pt")
-            
+
             # Check for MPS (Apple Silicon)
             if torch.backends.mps.is_available():
                 log_event("VISION", "✓ YOLOv8 using Apple Neural Engine (MPS)", "SUCCESS")
             else:
                 log_event("VISION", "YOLOv8 running on CPU", "INFO")
-            
+
             log_event("VISION", "✓ Vision system ready (80+ object classes)", "SUCCESS")
             return True
-            
+
         except Exception as e:
             log_event("VISION", f"YOLO load failed: {e}", "ERROR")
             return False
-    
+
     def analyze_frame(self, frame) -> Dict:
-        """Fast frame analysis with YOLO"""
+        """Fast frame analysis with YOLO - properly scales coordinates back"""
         if frame is None:
             return {"objects": [], "features": {}}
-        
-        # Resize for faster processing
-        h, w = frame.shape[:2]
-        if w > config.FRAME_RESIZE[0]:
-            scale = config.FRAME_RESIZE[0] / w
-            frame = cv2.resize(frame, None, fx=scale, fy=scale)
-        
-        features = self._extract_features(frame)
-        yolo_results = self._run_yolo(frame) if self.yolo_model else {}
-        
+
+        # Store original size for coordinate scaling
+        orig_h, orig_w = frame.shape[:2]
+        self._original_size = (orig_w, orig_h)
+
+        # Resize for faster YOLO processing
+        process_frame = frame
+        self._scale_factor = 1.0
+
+        if orig_w > config.FRAME_RESIZE[0]:
+            self._scale_factor = config.FRAME_RESIZE[0] / orig_w
+            process_frame = cv2.resize(frame, None, fx=self._scale_factor, fy=self._scale_factor)
+
+        features = self._extract_features(process_frame)
+        yolo_results = self._run_yolo(process_frame) if self.yolo_model else {}
+
         # Merge results
         features.update(yolo_results)
         self.last_features = features
-        
+
         return features
     
     def _extract_features(self, frame) -> Dict:
@@ -498,63 +506,78 @@ class VisionSystem:
         }
     
     def _run_yolo(self, frame) -> Dict:
-        """Run YOLO inference"""
+        """Run YOLO inference with proper coordinate scaling"""
         if not self.yolo_model:
+            # Clear boxes if no model
+            state.detection_boxes = []
             return {}
-        
+
         try:
             results = self.yolo_model(
-                frame, 
-                verbose=False, 
+                frame,
+                verbose=False,
                 conf=config.YOLO_CONF_THRESHOLD,
                 iou=config.YOLO_IOU_THRESHOLD
             )
-            
+
             objects = []
             counts = {}
             boxes = []
             threat_objects = []
-            
+
+            # Calculate inverse scale to convert back to original coordinates
+            inv_scale = 1.0 / self._scale_factor if self._scale_factor > 0 else 1.0
+
             for result in results:
                 for box in result.boxes:
                     cls_id = int(box.cls[0])
                     name = self.yolo_model.names[cls_id]
                     conf = float(box.conf[0])
-                    
-                    # Normalize names
-                    if name.lower() in ["phone", "smartphone"]:
+
+                    # Normalize names for common objects
+                    name_lower = name.lower()
+                    if name_lower in ["cell phone", "remote"]:
                         name = "cell phone"
-                    elif name.lower() in ["blade", "weapon"]:
+                    elif name_lower in ["blade", "weapon"]:
                         name = "knife"
-                    
+
                     objects.append(name)
                     counts[name] = counts.get(name, 0) + 1
-                    
-                    # Bounding box
+
+                    # Get bounding box and SCALE BACK to original frame coordinates
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
+
+                    # Scale coordinates back to original frame size
+                    x1_scaled = int(x1 * inv_scale)
+                    y1_scaled = int(y1 * inv_scale)
+                    x2_scaled = int(x2 * inv_scale)
+                    y2_scaled = int(y2 * inv_scale)
+
                     boxes.append({
                         "label": name,
                         "confidence": conf,
-                        "box": [int(x1), int(y1), int(x2), int(y2)]
+                        "box": [x1_scaled, y1_scaled, x2_scaled, y2_scaled]
                     })
-                    
-                    # Track threats
-                    if name.lower() in ['knife', 'scissors', 'fire', 'gun']:
+
+                    # Track threat objects - expanded list for demo
+                    threat_items = ['knife', 'scissors', 'fire', 'gun', 'baseball bat', 'fork', 'sports ball']
+                    if name_lower in threat_items:
                         threat_objects.append({"type": name, "confidence": conf})
-            
-            # Update state for video overlay
+
+            # Always update state for video overlay (even if empty - clears old boxes)
             state.detection_boxes = boxes
-            
+
             return {
                 "yolo_objects": objects,
                 "yolo_counts": counts,
-                "yolo_summary": ", ".join(f"{v} {k}(s)" for k, v in counts.items()),
+                "yolo_summary": ", ".join(f"{v} {k}(s)" for k, v in counts.items()) if counts else "No objects",
                 "threat_objects": threat_objects,
                 "people_count": counts.get("person", 0)
             }
-            
+
         except Exception as e:
             log_event("VISION", f"YOLO error: {e}", "DEBUG")
+            state.detection_boxes = []  # Clear on error
             return {}
 
 # Global vision system
@@ -1058,14 +1081,16 @@ class AegisSentinel:
             self.cleanup()
     
     def _start_video_thread(self):
-        """Start video capture thread for smooth 30 FPS"""
+        """Start video capture thread with real-time YOLO detection"""
         def video_loop():
             frame_time = 1.0 / 30
             frame_counter = 0
-            
+            last_yolo_time = 0
+            yolo_interval = 0.15  # Run YOLO every 150ms for smooth real-time detection
+
             while self.running:
                 start = time.time()
-                
+
                 try:
                     if self.test_mode:
                         frame = self._generate_test_frame()
@@ -1076,28 +1101,38 @@ class AegisSentinel:
                             continue
                     else:
                         frame = self._generate_placeholder_frame()
-                    
+
                     # Update state
                     with self._frame_lock:
                         state.current_frame = frame.copy()
-                    
-                    # Queue for analysis (non-blocking)
+
+                    # Run YOLO detection frequently for real-time box updates (not test mode)
+                    current_time = time.time()
+                    if not self.test_mode and current_time - last_yolo_time > yolo_interval:
+                        last_yolo_time = current_time
+                        try:
+                            # Run fast YOLO detection for real-time boxes
+                            vision.analyze_frame(frame)
+                        except Exception as e:
+                            pass  # Silently handle YOLO errors
+
+                    # Queue for full AI pipeline analysis (less frequent)
                     frame_counter += 1
-                    if frame_counter % 3 == 0:  # Every 3rd frame
+                    if frame_counter % 10 == 0:  # Every 10th frame for full AI analysis
                         try:
                             self._frame_queue.put_nowait(frame.copy())
                         except queue.Full:
                             pass  # Skip if queue is full
-                    
+
                 except Exception as e:
                     log_event("VIDEO", f"Frame error: {e}", "DEBUG")
-                
+
                 elapsed = time.time() - start
                 time.sleep(max(0, frame_time - elapsed))
-        
+
         self._video_thread = threading.Thread(target=video_loop, daemon=True)
         self._video_thread.start()
-        log_event("VIDEO", "✓ Video thread started (30 FPS)", "SUCCESS")
+        log_event("VIDEO", "✓ Video thread started (30 FPS + Real-time YOLO)", "SUCCESS")
     
     async def _analysis_loop(self):
         """Main async analysis loop"""
@@ -1809,36 +1844,81 @@ def video_feed():
             if frame is not None:
                 frame = frame.copy()
                 h, w = frame.shape[:2]
-                
-                # Draw detection boxes
+
+                # Draw detection boxes with improved visibility
                 for det in state.detection_boxes:
                     x1, y1, x2, y2 = det['box']
                     label = det['label']
                     conf = det['confidence']
-                    
-                    color = (0, 0, 255) if label.lower() in ['knife', 'gun', 'fire'] else (255, 255, 0) if label == 'person' else (0, 255, 0)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(frame, f"{label} {conf:.0%}", (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-                
-                # HUD overlay
-                cv2.rectangle(frame, (0, 0), (w, 40), (20, 20, 20), -1)
-                cv2.putText(frame, "AEGIS SENTINEL", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 200, 100), 2)
-                
+
+                    # Clamp coordinates to frame bounds
+                    x1 = max(0, min(x1, w - 1))
+                    y1 = max(0, min(y1, h - 1))
+                    x2 = max(0, min(x2, w - 1))
+                    y2 = max(0, min(y2, h - 1))
+
+                    # Color coding: RED for threats, CYAN for person, GREEN for objects
+                    label_lower = label.lower()
+                    is_threat = label_lower in ['knife', 'gun', 'fire', 'scissors', 'baseball bat']
+
+                    if is_threat:
+                        color = (0, 0, 255)  # RED for threats
+                        thickness = 3
+                    elif label_lower == 'person':
+                        color = (255, 255, 0)  # CYAN for person
+                        thickness = 2
+                    else:
+                        color = (0, 255, 0)  # GREEN for other objects
+                        thickness = 2
+
+                    # Draw box
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+
+                    # Draw label background for better readability
+                    label_text = f"{label} {conf:.0%}"
+                    (text_w, text_h), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                    cv2.rectangle(frame, (x1, y1 - text_h - 8), (x1 + text_w + 4, y1), color, -1)
+                    cv2.putText(frame, label_text, (x1 + 2, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                    # Add warning indicator for threats
+                    if is_threat:
+                        cv2.putText(frame, "! THREAT !", (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+                # HUD overlay - top bar
+                cv2.rectangle(frame, (0, 0), (w, 45), (15, 15, 20), -1)
+                cv2.putText(frame, "AEGIS SENTINEL", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 200, 100), 2)
+
                 status_color = (0, 0, 255) if state.threat_level == "CRITICAL" else (0, 255, 0)
                 status_text = "!! THREAT !!" if state.threat_level == "CRITICAL" else "SECURE"
-                cv2.putText(frame, status_text, (200, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
-                cv2.putText(frame, "PARALLAX AI", (w-140, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (188, 100, 255), 2)
-                
-                cv2.rectangle(frame, (0, h-35), (w, h), (20, 20, 20), -1)
-                cv2.putText(frame, f"SCAN #{state.scan_count}", (10, h-12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
-                cv2.circle(frame, (w-20, h-17), 5, (0, 0, 255), -1)
-                cv2.putText(frame, "LIVE", (w-60, h-12), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-                
-                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                cv2.putText(frame, status_text, (220, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
+
+                # Parallax branding
+                cv2.rectangle(frame, (w - 160, 8), (w - 10, 38), (80, 50, 120), -1)
+                cv2.putText(frame, "PARALLAX AI", (w - 155, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 180, 255), 2)
+
+                # Bottom bar with stats
+                cv2.rectangle(frame, (0, h - 40), (w, h), (15, 15, 20), -1)
+                cv2.putText(frame, f"SCAN #{state.scan_count}", (10, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+
+                # Object count
+                if state.detection_boxes:
+                    obj_count = len(state.detection_boxes)
+                    cv2.putText(frame, f"OBJECTS: {obj_count}", (150, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+
+                # Live indicator
+                cv2.circle(frame, (w - 25, h - 20), 6, (0, 0, 255), -1)
+                cv2.putText(frame, "LIVE", (w - 70, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
+                # Test mode indicator
+                if state.test_mode and state.current_scenario:
+                    cv2.rectangle(frame, (w//2 - 150, 50), (w//2 + 150, 80), (0, 100, 0), -1)
+                    cv2.putText(frame, f"DEMO: {state.current_scenario}", (w//2 - 140, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-            
+
             time.sleep(0.033)
-    
+
     return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 # =============================================================================

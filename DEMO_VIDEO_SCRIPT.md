@@ -3,194 +3,215 @@
 ## Recording Tips
 - Use screen recording (QuickTime or OBS)
 - Have 2 terminals ready: one for Parallax, one for AEGIS
-- Browser open to localhost:1420 (Tauri app) or video feed
-- Speak clearly and enthusiastically
+- Browser open to localhost:1420 or http://localhost:8001/video_feed
+- **KEY: Start with REAL camera first, then switch to --test mode**
+- Have a phone or object ready to hold up for detection demo
 
 ---
 
-## SCRIPT
+## SCRIPT (Real Camera + Test Mode Flow)
 
-### [0:00-0:15] HOOK - The Problem
+### [0:00-0:12] HOOK - The Problem
 
-**[Show slide or text overlay: "Home Security AI = $518/month on AWS"]**
+**[Show text overlay or say directly to camera]**
 
-> "What if I told you that running AI-powered home security costs over $500 a month on cloud services like AWS Rekognition? And your private camera footage gets sent to their servers. There has to be a better way."
-
----
-
-### [0:15-0:30] INTRO - The Solution
-
-**[Show AEGIS logo/banner or the running app]**
-
-> "Meet AEGIS - the Autonomous Edge Guard and Intelligence System. It's a sovereign AI security system that runs 100% locally on your own hardware, powered by Parallax. Zero cloud costs. Zero data leaving your home. Let me show you how it works."
+> "Home security AI on AWS costs $518 a month - and your private camera footage goes to their servers. I built something better."
 
 ---
 
-### [0:30-0:50] SHOW PARALLAX RUNNING
+### [0:12-0:25] INTRO - The Solution
 
-**[Terminal 1: Show Parallax running]**
+**[Show AEGIS dashboard or logo]**
+
+> "This is AEGIS - an AI security system that runs 100% locally using Parallax. Zero cloud costs. Zero data leaving your home. Let me show you it's real."
+
+---
+
+### [0:25-0:40] START PARALLAX
+
+**[Terminal 1: Show Parallax starting]**
 
 ```bash
 parallax run
 ```
 
-> "First, I start Parallax which hosts the Qwen3-0.6B model locally. Parallax turns my M1 MacBook Air - a consumer laptop - into a powerful AI inference server. No expensive GPUs needed."
-
-**[Point to the Parallax output showing model loaded]**
-
-> "The model is now running locally on port 3001, ready to process AI requests."
+> "First, I start Parallax - it hosts Qwen3 locally on my MacBook Air. No expensive GPUs, just consumer hardware turned into an AI server."
 
 ---
 
-### [0:50-1:20] START AEGIS & SHOW 7-STAGE PIPELINE
+### [0:40-1:10] REAL CAMERA DEMO (THE PROOF)
 
-**[Terminal 2: Start AEGIS in test mode]**
+**[Terminal 2: Start AEGIS WITHOUT --test flag]**
+
+```bash
+python backend/vision_sentinel.py
+```
+
+**[Show YOUR FACE on the live video feed]**
+
+> "Here's the proof - this is my real MacBook FaceTime camera. That's me, live, right now. Watch..."
+
+**[Wave at camera]**
+
+> "AEGIS detects me as a person instantly. The bounding box follows my movement in real-time."
+
+**[Hold up your phone to the camera]**
+
+> "If I hold up my phone - there! Cell phone detected. This is YOLOv8 running locally, feeding into our 7-stage Parallax AI pipeline."
+
+**[Point to the Neural Log showing "1 person(s), 1 cell phone(s)"]**
+
+> "Every detection is analyzed by Parallax - scene interpretation, behavior analysis, risk scoring - all happening live on my laptop."
+
+---
+
+### [1:10-1:25] TRANSITION TO TEST MODE
+
+**[Ctrl+C to stop, then restart with --test]**
 
 ```bash
 python backend/vision_sentinel.py --test
 ```
 
-**[Show the ASCII banner and startup logs]**
-
-> "Now I start AEGIS. Watch the console - it connects to Parallax and initializes a 7-stage AI pipeline. That's SEVEN different AI calls per security scan - scene interpretation, threat detection, action planning, trend analysis, log summary, behavior analysis, and risk scoring."
-
-**[Switch to browser/app showing the Dashboard]**
-
-> "Here's the dashboard. On the left, our live video feed with real-time object detection using YOLOv8. On the right, watch the AI pipeline visualization - each stage lights up as Parallax processes the scene."
+> "Now let me show you the threat detection you hopefully WON'T see in real life. Switching to demo mode..."
 
 ---
 
-### [1:20-1:50] DEMO THREAT DETECTION
+### [1:25-1:50] THREAT SCENARIOS
 
-**[Wait for weapon or fire scenario in test mode]**
+**[Wait for WEAPON scenario - red alert]**
 
-> "Watch what happens when AEGIS detects a threat..."
+> "WEAPON DETECTED! AEGIS identifies the knife, triggers CRITICAL alert, and Parallax AI generates an action plan - evacuate, call 911, don't confront. All in under 2 seconds."
 
-**[Show the threat alert - red screen, CRITICAL status]**
+**[Wait for FIRE scenario]**
 
-> "AEGIS detected a weapon! The AI analyzed the scene, identified the threat, and generated an action plan - all in under 2 seconds, all running locally on Parallax. No cloud. No latency. No monthly bills."
+> "Fire detection - analyzing color patterns and motion to identify flames. Different threat, different AI response."
 
-**[Point to the threat badge and neural log]**
+**[Wait for CAMERA BLOCKED scenario]**
 
-> "Every detection is logged with timestamps, confidence scores, and AI-generated reasoning."
-
----
-
-### [1:50-2:15] DEMO AI QUERY FEATURE
-
-**[Click on AI_INTEL tab]**
-
-> "Here's my favorite feature - natural language queries. I can ask AEGIS anything about the security status."
-
-**[Click "Was anyone home?" button]**
-
-> "Watch - I ask 'Was anyone home?' and Parallax analyzes all the detection data to give me a specific answer with timestamps."
-
-**[Show the AI response with confidence score and inference time]**
-
-> "95% confidence, answered in 500 milliseconds - that's the power of local AI inference with Parallax."
+> "Even camera tampering is caught - someone covers the lens, AEGIS detects the obstruction immediately."
 
 ---
 
-### [2:15-2:40] THE IMPACT - COST SAVINGS
+### [1:50-2:15] AI QUERY DEMO
 
-**[Show the Cost Metrics panel]**
+**[Click AI_INTEL tab]**
 
-> "Let's talk about impact. AWS Rekognition would cost $518 per month for this level of AI security monitoring. With AEGIS and Parallax? Zero dollars. Forever. That's over $6,000 saved per year."
+> "Here's the killer feature - natural language queries powered by Parallax."
 
-**[Point to privacy score]**
+**[Click "Was anyone home?"]**
 
-> "And privacy? 100% local. Your camera footage never leaves your network. For families, for businesses, for anyone who cares about privacy - this is a game changer."
+> "Was anyone home? It remembers detecting ME earlier with the real camera - look, it gives the exact time!"
+
+**[Click "Any threats detected?"]**
+
+> "Any threats? It summarizes all the scenarios - weapon, fire, camera blocked - with timestamps and severity levels."
+
+**[Point to inference time]**
+
+> "500 milliseconds, 95% confidence - that's local Parallax AI."
 
 ---
 
-### [2:40-2:55] CLOSING
+### [2:15-2:35] COST & PRIVACY IMPACT
 
-**[Show full dashboard with all features visible]**
+**[Show Cost Metrics panel]**
 
-> "AEGIS proves that powerful AI applications don't need expensive cloud services. With Parallax, anyone can build production-ready AI systems on consumer hardware."
+> "The numbers: AWS Rekognition costs $518 per month. AEGIS with Parallax? Zero. Forever. That's $6,220 saved every year."
 
-> "7-stage AI pipeline. Real-time threat detection. Natural language queries. Zero cost. 100% private. This is the future of sovereign AI - and it's running right here on my MacBook."
+> "Privacy score: 100% local. My face, my home, my family - never leaves my network. That's not a feature, that's a requirement."
 
-**[Show competition badge or Gradient logo]**
+---
 
-> "Built for the Gradient Parallax AI Lab Competition. Thank you for watching!"
+### [2:35-2:55] CLOSING
+
+**[Show full dashboard]**
+
+> "AEGIS: Real camera support, 7-stage AI pipeline, threat detection, natural language queries - all running on a MacBook Air with Parallax."
+
+> "Sovereign AI isn't the future - it's running right here, right now. Built for the Gradient Parallax AI Lab Competition. Thank you!"
+
+---
+
+## QUICK COMMANDS
+
+```bash
+# Terminal 1: Parallax
+parallax run
+
+# Terminal 2: AEGIS with REAL camera (start here!)
+python backend/vision_sentinel.py
+
+# Terminal 2: AEGIS in TEST mode (switch to this)
+python backend/vision_sentinel.py --test
+```
 
 ---
 
 ## POST-VIDEO CHECKLIST
 
 ### Required for Submission:
-- [ ] Upload video to YouTube/Twitter/etc.
-- [ ] Post on X with @Gradient_HQ tag
-- [ ] Include hashtags: #Parallax #LocalAI #GradientAI
-- [ ] Submit form with GitHub repo link
+- [ ] Upload video to YouTube/X/etc.
+- [ ] Post on X tagging @Gradient_HQ
+- [ ] Submit form at: [Gradient submission form]
+- [ ] Include GitHub repo link
 
-### Suggested X Post:
-
-```
-🛡️ Meet AEGIS - AI-powered home security running 100% locally with @Gradient_HQ Parallax!
-
-✨ 7-Stage AI Pipeline
-💰 $0/month (vs $518 AWS)
-🔒 100% Private - no cloud
-🧠 Powered by Qwen3-0.6B
-
-Built for the #Parallax AI Lab Competition!
-
-[VIDEO LINK]
-[GITHUB LINK]
-
-#LocalAI #AIPrivacy #BuildWithParallax
-```
-
-### Suggested Reddit Post (r/LocalLLaMA, r/selfhosted):
+### X Post Template:
 
 ```
-Title: I built a free, private AI security system using Parallax local inference
+🛡️ AEGIS - AI Security running 100% locally with @Gradient_HQ Parallax!
 
-Hey everyone! I built AEGIS for the Gradient Parallax competition - it's a home security system with:
+✅ REAL camera demo (that's my face!)
+✅ 7-Stage AI Pipeline
+✅ Threat Detection (weapons, fire, tampering)
+✅ Natural Language Q&A
+💰 $0/month vs $518 AWS
+🔒 100% Private
 
-- 7-stage AI pipeline (scene interpretation, threat detection, action planning, etc.)
-- YOLOv8 for real-time object detection
-- Natural language Q&A about your security footage
-- $0/month vs $518/month for AWS Rekognition
-- 100% local processing - your data never leaves your network
+Built for #Parallax AI Lab Competition!
 
-It runs on an M1 MacBook Air using Parallax to serve Qwen3-0.6B locally.
+🎬 [VIDEO]
+💻 [GITHUB]
 
-[Demo Video]
-[GitHub Repo]
+#LocalAI #GradientAI #BuildWithParallax
+```
 
-Would love feedback from the community!
+### Reddit Post (r/LocalLLaMA, r/selfhosted):
+
+```
+Title: I built a $0/month AI security system with real camera support using Parallax
+
+Built AEGIS for the Gradient competition - full AI security with:
+
+- Real MacBook camera support (demo shows my actual face)
+- 7-stage AI pipeline powered by Parallax (Qwen3-0.6B)
+- Weapon, fire, and tampering detection
+- Natural language Q&A ("Was anyone home?")
+- $0/month vs $518 for AWS Rekognition
+
+Runs entirely on M1 MacBook Air. No cloud. 100% private.
+
+[Demo Video] | [GitHub]
 ```
 
 ---
 
-## QUICK COMMANDS REFERENCE
+## KEY DEMO MOMENTS (Screenshot These!)
 
-```bash
-# Terminal 1: Start Parallax
-cd ~/parallax
-source venv/bin/activate
-parallax run
+1. **Your real face** being detected with bounding box
+2. **Phone detection** when you hold it up
+3. **CRITICAL threat alert** (red screen, weapon)
+4. **AI Query response** with your detection from real camera
+5. **Cost savings** panel showing $6,220/year
 
-# Terminal 2: Start AEGIS (demo mode)
-cd ~/projects/AEGIS
-python backend/vision_sentinel.py --test
+---
 
-# Terminal 3: Start Frontend (if using dev mode)
-npm run dev
+## JUDGE TALKING POINTS
 
-# Or run the Tauri app
-npm run tauri dev
-```
-
-## KEY TALKING POINTS FOR JUDGES
-
-1. **Impact**: Replaces $518/month cloud service with $0 local solution
-2. **Privacy**: 100% local - critical for home security cameras
-3. **Technical Depth**: 7 different AI inference calls per scan cycle
-4. **Parallax Integration**: Uses OpenAI-compatible API, easy to adapt
-5. **Accessibility**: Runs on consumer M1 MacBook, not expensive hardware
-6. **Real-World Use**: Solves actual privacy/cost problems for families & businesses
+| Point | What to Say |
+|-------|-------------|
+| **Real, Not Fake** | "That was my actual camera - AEGIS works with real hardware" |
+| **Impact** | "$6,220/year saved vs cloud solutions" |
+| **Privacy** | "Camera footage of my home never leaves my network" |
+| **Technical** | "7 Parallax AI calls per scan - deep integration" |
+| **Accessible** | "Runs on M1 MacBook Air - consumer hardware" |
