@@ -94,7 +94,7 @@ config = Config()
 
 class SystemState:
     """Thread-safe shared state for API and sentinel"""
-    
+
     def __init__(self):
         self._lock = threading.RLock()
         self.logs = deque(maxlen=200)
@@ -109,6 +109,10 @@ class SystemState:
         self.detection_boxes = []
         self.test_mode = False
         self.current_scenario = ""
+
+        # Multi-camera support
+        self.cameras = {}  # {camera_id: {"frame": np.ndarray, "boxes": [], "info": {...}}}
+        self.active_camera_ids = []  # List of active camera indices
         
         # Performance metrics
         self.metrics = {
@@ -183,6 +187,62 @@ class SystemState:
             self.scan_count = 0
             self.threat_count = 0
             self._event_counter = 0
+
+    # Multi-camera methods
+    def register_camera(self, camera_id: int, info: dict):
+        """Register a camera with its metadata"""
+        with self._lock:
+            self.cameras[camera_id] = {
+                "frame": None,
+                "boxes": [],
+                "info": info,
+                "active": True
+            }
+            if camera_id not in self.active_camera_ids:
+                self.active_camera_ids.append(camera_id)
+                self.active_camera_ids.sort()
+
+    def update_camera_frame(self, camera_id: int, frame, boxes: list = None):
+        """Update frame and detection boxes for a specific camera"""
+        with self._lock:
+            if camera_id in self.cameras:
+                self.cameras[camera_id]["frame"] = frame
+                if boxes is not None:
+                    self.cameras[camera_id]["boxes"] = boxes
+            # Also update legacy single-camera fields for backwards compatibility
+            if camera_id == 0 or len(self.active_camera_ids) == 1:
+                self.current_frame = frame
+                if boxes is not None:
+                    self.detection_boxes = boxes
+
+    def get_camera_frame(self, camera_id: int):
+        """Get the current frame for a specific camera"""
+        with self._lock:
+            if camera_id in self.cameras:
+                return self.cameras[camera_id].get("frame")
+            return None
+
+    def get_camera_boxes(self, camera_id: int) -> list:
+        """Get detection boxes for a specific camera"""
+        with self._lock:
+            if camera_id in self.cameras:
+                return self.cameras[camera_id].get("boxes", [])
+            return []
+
+    def get_all_cameras_info(self) -> list:
+        """Get info for all registered cameras"""
+        with self._lock:
+            result = []
+            for cam_id in self.active_camera_ids:
+                cam_data = self.cameras.get(cam_id, {})
+                info = cam_data.get("info", {})
+                result.append({
+                    "index": cam_id,
+                    "name": info.get("name", f"Camera {cam_id}"),
+                    "resolution": info.get("resolution", "unknown"),
+                    "active": cam_data.get("active", False)
+                })
+            return result
 
 # Global state
 state = SystemState()
@@ -919,13 +979,15 @@ pipeline = AIPipeline()
 
 class AegisSentinel:
     """Main sentinel with optimized async processing"""
-    
+
     def __init__(self):
-        self.camera = None
+        self.camera = None  # Legacy single camera (for backwards compatibility)
+        self.cameras = {}  # {camera_id: cv2.VideoCapture} - Multi-camera support
         self.running = False
         self.test_mode = False
         self._frame_lock = threading.Lock()
-        self._video_thread = None
+        self._video_threads = {}  # {camera_id: thread} - Per-camera video threads
+        self._video_thread = None  # Legacy single thread
         self._analysis_thread = None
         self._frame_queue = queue.Queue(maxsize=config.MAX_FRAME_QUEUE)
         
@@ -980,15 +1042,12 @@ class AegisSentinel:
         print("SAFE", flush=True)
     
     def _init_camera(self):
-        """Initialize camera with auto-detection - prefers real MacBook FaceTime camera"""
-        best_camera = None
-        best_score = -1
-        best_index = -1
+        """Initialize all available cameras for multi-camera support"""
         camera_candidates = []
 
         try:
-            # Test multiple camera indices to find the best one
-            for cam_idx in range(3):
+            # Test camera indices 0-9 to find all available cameras
+            for cam_idx in range(10):
                 try:
                     # Use AVFoundation on macOS
                     if hasattr(cv2, 'CAP_AVFOUNDATION'):
@@ -998,64 +1057,72 @@ class AegisSentinel:
 
                     if test_cam.isOpened():
                         # Wait a bit for camera to initialize properly
-                        time.sleep(0.5)
+                        time.sleep(0.3)
                         ret, frame = test_cam.read()
                         if ret and frame is not None:
                             height, width = frame.shape[:2]
                             brightness = np.mean(frame)
 
+                            # Skip cameras with very low brightness (likely broken/inactive)
+                            if brightness < 3:
+                                test_cam.release()
+                                continue
+
                             # MacBook FaceTime cameras are typically 720p (1280x720)
-                            # Prefer 720p over higher resolutions (which are likely virtual cameras)
                             is_720p = (width == 1280 and height == 720)
                             is_1080p_or_higher = (width >= 1920 or height >= 1080)
 
-                            # Calculate quality score
+                            # Determine camera name
                             if is_720p:
-                                # Strongly prefer 720p (MacBook FaceTime camera)
-                                quality_score = 10000000  # Very high priority
+                                camera_name = f"FaceTime HD Camera"
                             elif is_1080p_or_higher:
-                                # Penalize very high resolution (likely virtual/screen capture)
-                                quality_score = (width * height) * 0.01
+                                camera_name = f"HD Camera {cam_idx}"
                             else:
-                                quality_score = width * height
+                                camera_name = f"Camera {cam_idx}"
 
-                            # Additional brightness check
-                            if brightness < 5:
-                                quality_score *= 0.5
-
-                            camera_candidates.append({
+                            camera_info = {
                                 'index': cam_idx,
                                 'camera': test_cam,
                                 'width': width,
                                 'height': height,
                                 'brightness': brightness,
-                                'score': quality_score,
-                                'is_720p': is_720p
-                            })
+                                'name': camera_name,
+                                'is_720p': is_720p,
+                                'resolution': f"{width}x{height}"
+                            }
 
-                            log_event("CAMERA", f"Camera {cam_idx}: {width}x{height}, brightness={brightness:.1f}, score={quality_score:.0f}{' [FaceTime HD]' if is_720p else ''}", "INFO")
+                            camera_candidates.append(camera_info)
+                            log_event("CAMERA", f"Found Camera {cam_idx}: {width}x{height}, brightness={brightness:.1f}{' [FaceTime HD]' if is_720p else ''}", "INFO")
                         else:
                             test_cam.release()
                 except Exception as e:
-                    log_event("CAMERA", f"Camera {cam_idx} test failed: {e}", "INFO")
                     continue
 
-            # Select best camera from candidates
+            # Register all found cameras
             if camera_candidates:
-                # Sort by score (highest first)
-                camera_candidates.sort(key=lambda x: x['score'], reverse=True)
-                best = camera_candidates[0]
+                for cam_info in camera_candidates:
+                    cam_idx = cam_info['index']
+                    self.cameras[cam_idx] = cam_info['camera']
 
-                # Release all other cameras
-                for cam in camera_candidates[1:]:
-                    cam['camera'].release()
+                    # Register camera in state
+                    state.register_camera(cam_idx, {
+                        "name": cam_info['name'],
+                        "resolution": cam_info['resolution'],
+                        "width": cam_info['width'],
+                        "height": cam_info['height']
+                    })
 
-                self.camera = best['camera']
+                # Set first camera as the legacy single camera for backwards compatibility
+                first_cam_idx = camera_candidates[0]['index']
+                self.camera = self.cameras[first_cam_idx]
                 state.camera_active = True
-                log_event("CAMERA", f"✓ Using Camera {best['index']} ({best['width']}x{best['height']}) - Real FaceTime Camera", "SUCCESS")
+
+                log_event("CAMERA", f"✓ Initialized {len(camera_candidates)} camera(s)", "SUCCESS")
+                for cam_info in camera_candidates:
+                    log_event("CAMERA", f"  - Camera {cam_info['index']}: {cam_info['name']} ({cam_info['resolution']})", "INFO")
                 return
 
-            log_event("CAMERA", "⚠ No camera available", "WARN")
+            log_event("CAMERA", "⚠ No cameras available", "WARN")
             self.camera = None
 
         except Exception as e:
@@ -1081,8 +1148,10 @@ class AegisSentinel:
             self.cleanup()
     
     def _start_video_thread(self):
-        """Start video capture thread with real-time YOLO detection"""
-        def video_loop():
+        """Start video capture threads for all cameras with real-time YOLO detection"""
+
+        def video_loop_for_camera(camera_id: int, camera):
+            """Video loop for a specific camera"""
             frame_time = 1.0 / 30
             frame_counter = 0
             last_yolo_time = 0
@@ -1092,47 +1161,105 @@ class AegisSentinel:
                 start = time.time()
 
                 try:
-                    if self.test_mode:
-                        frame = self._generate_test_frame()
-                    elif self.camera and self.camera.isOpened():
-                        ret, frame = self.camera.read()
+                    if camera and camera.isOpened():
+                        ret, frame = camera.read()
                         if not ret:
                             time.sleep(frame_time)
                             continue
                     else:
                         frame = self._generate_placeholder_frame()
 
-                    # Update state
+                    # Update state for this specific camera
                     with self._frame_lock:
-                        state.current_frame = frame.copy()
+                        state.update_camera_frame(camera_id, frame.copy())
 
-                    # Run YOLO detection frequently for real-time box updates (not test mode)
+                    # Run YOLO detection frequently for real-time box updates
                     current_time = time.time()
-                    if not self.test_mode and current_time - last_yolo_time > yolo_interval:
+                    if current_time - last_yolo_time > yolo_interval:
                         last_yolo_time = current_time
                         try:
                             # Run fast YOLO detection for real-time boxes
-                            vision.analyze_frame(frame)
+                            features = vision.analyze_frame(frame)
+                            # Update boxes for this specific camera
+                            state.update_camera_frame(camera_id, frame.copy(), state.detection_boxes.copy())
                         except Exception as e:
                             pass  # Silently handle YOLO errors
 
-                    # Queue for full AI pipeline analysis (less frequent)
+                    # Queue for full AI pipeline analysis (less frequent, only primary camera)
                     frame_counter += 1
-                    if frame_counter % 10 == 0:  # Every 10th frame for full AI analysis
+                    if frame_counter % 10 == 0 and camera_id == state.active_camera_ids[0]:
                         try:
-                            self._frame_queue.put_nowait(frame.copy())
+                            self._frame_queue.put_nowait((camera_id, frame.copy()))
                         except queue.Full:
                             pass  # Skip if queue is full
 
                 except Exception as e:
-                    log_event("VIDEO", f"Frame error: {e}", "DEBUG")
+                    log_event("VIDEO", f"Camera {camera_id} frame error: {e}", "DEBUG")
 
                 elapsed = time.time() - start
                 time.sleep(max(0, frame_time - elapsed))
 
-        self._video_thread = threading.Thread(target=video_loop, daemon=True)
-        self._video_thread.start()
-        log_event("VIDEO", "✓ Video thread started (30 FPS + Real-time YOLO)", "SUCCESS")
+        def test_mode_loop():
+            """Video loop for test mode (synthetic frames)"""
+            frame_time = 1.0 / 30
+            frame_counter = 0
+
+            while self.running:
+                start = time.time()
+
+                try:
+                    frame = self._generate_test_frame()
+
+                    # Update state
+                    with self._frame_lock:
+                        state.current_frame = frame.copy()
+                        # In test mode, register a virtual camera if none exist
+                        if not state.active_camera_ids:
+                            state.register_camera(0, {
+                                "name": "Test Camera",
+                                "resolution": "1280x720",
+                                "width": 1280,
+                                "height": 720
+                            })
+                        state.update_camera_frame(0, frame.copy())
+
+                    # Queue for full AI pipeline analysis (less frequent)
+                    frame_counter += 1
+                    if frame_counter % 10 == 0:
+                        try:
+                            self._frame_queue.put_nowait((0, frame.copy()))
+                        except queue.Full:
+                            pass
+
+                except Exception as e:
+                    log_event("VIDEO", f"Test mode frame error: {e}", "DEBUG")
+
+                elapsed = time.time() - start
+                time.sleep(max(0, frame_time - elapsed))
+
+        if self.test_mode:
+            # Single thread for test mode
+            self._video_thread = threading.Thread(target=test_mode_loop, daemon=True)
+            self._video_thread.start()
+            log_event("VIDEO", "✓ Test mode video thread started (30 FPS)", "SUCCESS")
+        else:
+            # Start a thread for each camera
+            for cam_id, camera in self.cameras.items():
+                thread = threading.Thread(
+                    target=video_loop_for_camera,
+                    args=(cam_id, camera),
+                    daemon=True
+                )
+                self._video_threads[cam_id] = thread
+                thread.start()
+                log_event("VIDEO", f"✓ Camera {cam_id} thread started (30 FPS + Real-time YOLO)", "SUCCESS")
+
+            # Legacy single thread support (first camera)
+            if self.cameras:
+                first_cam_id = list(self.cameras.keys())[0]
+                self._video_thread = self._video_threads.get(first_cam_id)
+
+            log_event("VIDEO", f"✓ {len(self.cameras)} camera thread(s) running", "SUCCESS")
     
     async def _analysis_loop(self):
         """Main async analysis loop"""
@@ -1140,14 +1267,20 @@ class AegisSentinel:
             try:
                 # Get frame from queue (with timeout)
                 try:
-                    frame = self._frame_queue.get(timeout=config.INFERENCE_INTERVAL)
+                    queue_item = self._frame_queue.get(timeout=config.INFERENCE_INTERVAL)
+                    # Handle both old format (frame only) and new format (camera_id, frame)
+                    if isinstance(queue_item, tuple):
+                        camera_id, frame = queue_item
+                    else:
+                        camera_id, frame = 0, queue_item
                 except queue.Empty:
                     # Use current frame if queue is empty
                     with self._frame_lock:
                         frame = state.current_frame
+                    camera_id = 0
                     if frame is None:
                         continue
-                
+
                 # Analyze frame - in test mode, use pre-set features
                 if sentinel.test_mode and vision.last_features:
                     # Use the synthetic features set by _generate_test_frame
@@ -1490,10 +1623,25 @@ class AegisSentinel:
     def cleanup(self):
         """Clean shutdown"""
         self.running = False
-        if self._video_thread:
+
+        # Stop all video threads
+        for cam_id, thread in self._video_threads.items():
+            if thread and thread.is_alive():
+                thread.join(timeout=1.0)
+
+        # Legacy single thread
+        if self._video_thread and self._video_thread.is_alive():
             self._video_thread.join(timeout=1.0)
+
+        # Release all cameras
+        for cam_id, camera in self.cameras.items():
+            if camera:
+                camera.release()
+
+        # Legacy single camera
         if self.camera:
             self.camera.release()
+
         log_event("AEGIS", "👋 Sentinel terminated", "INFO")
 
 # Global sentinel instance
@@ -1548,9 +1696,11 @@ def health():
 
 @api.get("/cameras")
 def list_cameras():
+    cameras_info = state.get_all_cameras_info()
     return {
-        "cameras": [{"index": 0, "name": "Primary Camera", "resolution": "1280x720", "active": True}] if state.camera_active else [],
-        "current": 0 if state.camera_active else None,
+        "cameras": cameras_info if cameras_info else [],
+        "count": len(cameras_info),
+        "current": state.active_camera_ids[0] if state.active_camera_ids else None,
         "test_mode": state.test_mode
     }
 
@@ -1920,6 +2070,89 @@ def video_feed():
             time.sleep(0.033)
 
     return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+
+@api.get("/video_feed/{camera_id}")
+def video_feed_by_camera(camera_id: int):
+    """Video feed for a specific camera"""
+    def generate():
+        while True:
+            frame = state.get_camera_frame(camera_id)
+            boxes = state.get_camera_boxes(camera_id)
+
+            if frame is not None:
+                frame = frame.copy()
+                h, w = frame.shape[:2]
+
+                # Draw detection boxes with improved visibility
+                for det in boxes:
+                    x1, y1, x2, y2 = det['box']
+                    label = det['label']
+                    conf = det['confidence']
+
+                    # Clamp coordinates to frame bounds
+                    x1 = max(0, min(x1, w - 1))
+                    y1 = max(0, min(y1, h - 1))
+                    x2 = max(0, min(x2, w - 1))
+                    y2 = max(0, min(y2, h - 1))
+
+                    # Color coding: RED for threats, CYAN for person, GREEN for objects
+                    label_lower = label.lower()
+                    is_threat = label_lower in ['knife', 'gun', 'fire', 'scissors', 'baseball bat']
+
+                    if is_threat:
+                        color = (0, 0, 255)  # RED for threats
+                        thickness = 3
+                    elif label_lower == 'person':
+                        color = (255, 255, 0)  # CYAN for person
+                        thickness = 2
+                    else:
+                        color = (0, 255, 0)  # GREEN for other objects
+                        thickness = 2
+
+                    # Draw box
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+
+                    # Draw label background for better readability
+                    label_text = f"{label} {conf:.0%}"
+                    (text_w, text_h), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                    cv2.rectangle(frame, (x1, y1 - text_h - 8), (x1 + text_w + 4, y1), color, -1)
+                    cv2.putText(frame, label_text, (x1 + 2, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                    # Add warning indicator for threats
+                    if is_threat:
+                        cv2.putText(frame, "! THREAT !", (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+                # HUD overlay - top bar with camera identifier
+                cv2.rectangle(frame, (0, 0), (w, 45), (15, 15, 20), -1)
+                camera_info = state.cameras.get(camera_id, {}).get("info", {})
+                camera_name = camera_info.get("name", f"Camera {camera_id}")
+                cv2.putText(frame, f"CAM {camera_id}: {camera_name}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 200, 100), 2)
+
+                status_color = (0, 0, 255) if state.threat_level == "CRITICAL" else (0, 255, 0)
+                status_text = "!! THREAT !!" if state.threat_level == "CRITICAL" else "SECURE"
+                cv2.putText(frame, status_text, (w - 180, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
+
+                # Bottom bar with stats
+                cv2.rectangle(frame, (0, h - 35), (w, h), (15, 15, 20), -1)
+                cv2.putText(frame, f"SCAN #{state.scan_count}", (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 150, 150), 1)
+
+                # Object count for this camera
+                if boxes:
+                    obj_count = len(boxes)
+                    cv2.putText(frame, f"OBJECTS: {obj_count}", (130, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+
+                # Live indicator
+                cv2.circle(frame, (w - 20, h - 18), 5, (0, 0, 255), -1)
+                cv2.putText(frame, "LIVE", (w - 60, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+
+            time.sleep(0.033)
+
+    return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
+
 
 # =============================================================================
 # ENTRY POINT

@@ -2,32 +2,171 @@ import React, { useState, useEffect, useRef } from 'react';
 import { clsx } from 'clsx';
 import { VideoCameraIcon, ChevronDownIcon, BeakerIcon, SignalIcon } from '@heroicons/react/24/outline';
 
+// Individual camera feed component
+const CameraFeed = ({ camera, streamKey, isTestMode, currentScenario, isSingleCamera }) => {
+    const [fps, setFps] = useState(30);
+    const frameCountRef = useRef(0);
+
+    const VIDEO_URL = `http://localhost:8001/video_feed/${camera.index}?t=${streamKey}`;
+
+    useEffect(() => {
+        const fpsInterval = setInterval(() => {
+            setFps(Math.min(30, frameCountRef.current));
+            frameCountRef.current = 0;
+        }, 1000);
+        return () => clearInterval(fpsInterval);
+    }, []);
+
+    const handleFrameLoad = () => {
+        frameCountRef.current++;
+    };
+
+    return (
+        <div className={clsx(
+            "relative rounded-xl overflow-hidden bg-black border border-white/10 shadow-2xl group",
+            isSingleCamera ? "w-full h-full" : "aspect-video"
+        )}>
+            {/* Scanline overlay */}
+            <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.1)_50%)] bg-[length:100%_4px] pointer-events-none z-20 opacity-20" />
+
+            {/* Vignette */}
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_50%,rgba(0,0,0,0.5)_100%)] pointer-events-none z-20" />
+
+            {/* Video stream */}
+            <img
+                src={VIDEO_URL}
+                alt={`Camera ${camera.index} Feed`}
+                className="absolute inset-0 w-full h-full object-cover z-10"
+                onLoad={handleFrameLoad}
+            />
+
+            {/* HUD Overlay */}
+            <div className="absolute inset-0 z-30 pointer-events-none p-3 flex flex-col justify-between">
+                {/* Top HUD */}
+                <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2">
+                        {/* Recording indicator */}
+                        <div className={clsx(
+                            "flex items-center gap-2 px-2 py-1 border rounded-lg backdrop-blur-md transition-all",
+                            isTestMode
+                                ? "bg-yellow-500/10 border-yellow-500/30"
+                                : "bg-neon-red/10 border-neon-red/30"
+                        )}>
+                            {isTestMode ? (
+                                <BeakerIcon className="w-3 h-3 text-yellow-400" />
+                            ) : (
+                                <div className="w-2 h-2 rounded-full shadow-[0_0_10px_currentColor] bg-neon-red animate-pulse" />
+                            )}
+                            <span className={clsx(
+                                "text-[9px] font-bold tracking-[0.15em]",
+                                isTestMode ? "text-yellow-400" : "text-neon-red"
+                            )}>
+                                {isTestMode ? "DEMO" : "REC"}
+                            </span>
+                        </div>
+
+                        {/* FPS counter */}
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-black/40 border border-white/10 rounded backdrop-blur-md">
+                            <SignalIcon className="w-2.5 h-2.5 text-neon-green" />
+                            <span className="text-[9px] font-mono text-neon-green">{fps} FPS</span>
+                        </div>
+                    </div>
+
+                    {/* Camera info */}
+                    <div className="text-right">
+                        <div className="text-[9px] font-mono text-neon-blue/70 tracking-wider px-2 py-1 bg-black/30 rounded">
+                            CAM {camera.index}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Test mode scenario banner */}
+                {isTestMode && currentScenario && isSingleCamera && (
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 translate-y-8">
+                        <div className="px-4 py-2 bg-black/70 border border-yellow-500/50 rounded-lg backdrop-blur-md text-center">
+                            <span className="text-[9px] font-mono text-yellow-400 tracking-[0.2em] block mb-1">
+                                DEMO MODE
+                            </span>
+                            <span className="text-base font-mono text-white font-bold">
+                                {currentScenario}
+                            </span>
+                        </div>
+                    </div>
+                )}
+
+                {/* Bottom HUD */}
+                <div className="flex justify-between items-end">
+                    {/* Signal strength bars */}
+                    <div className="flex items-end gap-0.5">
+                        {[...Array(5)].map((_, i) => (
+                            <div
+                                key={i}
+                                className="w-1 rounded-sm bg-neon-blue"
+                                style={{ height: `${(i + 1) * 3}px`, opacity: 1 - (i * 0.15) }}
+                            />
+                        ))}
+                    </div>
+
+                    {/* Camera name */}
+                    <div className="text-center">
+                        <div className="text-[9px] font-mono text-neon-blue/60 tracking-[0.1em]">
+                            {camera.name || `Camera ${camera.index}`}
+                        </div>
+                        <div className="text-[8px] font-mono text-slate-500">
+                            {camera.resolution}
+                        </div>
+                    </div>
+
+                    {/* Grid pattern indicator */}
+                    <div className="grid grid-cols-3 gap-0.5">
+                        {[...Array(9)].map((_, i) => (
+                            <div
+                                key={i}
+                                className="w-1 h-1 rounded-sm bg-neon-blue/30"
+                            />
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const VideoFeed = ({ className }) => {
     const [isConnected, setIsConnected] = useState(false);
     const [error, setError] = useState(null);
     const [isTestMode, setIsTestMode] = useState(false);
     const [currentScenario, setCurrentScenario] = useState("");
     const [streamKey, setStreamKey] = useState(0);
-    const [fps, setFps] = useState(30);
-    const imgRef = useRef(null);
-    const frameCountRef = useRef(0);
-
-    const VIDEO_SERVER_URL = `http://localhost:8001/video_feed?t=${streamKey}`;
+    const [cameras, setCameras] = useState([]);
 
     useEffect(() => {
         const checkConnection = async () => {
             try {
-                const res = await fetch("http://localhost:8001/health");
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.camera_available || data.test_mode) {
-                        setIsConnected(true);
-                        setIsTestMode(data.test_mode);
-                        setCurrentScenario(data.current_scenario || "");
-                        setError(null);
-                    } else {
-                        setError("Camera not available");
-                        setIsConnected(false);
+                // Fetch health status
+                const healthRes = await fetch("http://localhost:8001/health");
+                if (healthRes.ok) {
+                    const healthData = await healthRes.json();
+                    setIsTestMode(healthData.test_mode);
+                    setCurrentScenario(healthData.current_scenario || "");
+
+                    // Fetch camera list
+                    const camerasRes = await fetch("http://localhost:8001/cameras");
+                    if (camerasRes.ok) {
+                        const camerasData = await camerasRes.json();
+                        if (camerasData.cameras && camerasData.cameras.length > 0) {
+                            setCameras(camerasData.cameras);
+                            setIsConnected(true);
+                            setError(null);
+                        } else if (healthData.test_mode) {
+                            // Test mode with virtual camera
+                            setCameras([{ index: 0, name: "Test Camera", resolution: "1280x720", active: true }]);
+                            setIsConnected(true);
+                            setError(null);
+                        } else {
+                            setError("No cameras available");
+                            setIsConnected(false);
+                        }
                     }
                 } else {
                     setError("Backend not responding");
@@ -44,15 +183,6 @@ const VideoFeed = ({ className }) => {
         return () => clearInterval(interval);
     }, []);
 
-    // FPS counter
-    useEffect(() => {
-        const fpsInterval = setInterval(() => {
-            setFps(Math.min(30, frameCountRef.current));
-            frameCountRef.current = 0;
-        }, 1000);
-        return () => clearInterval(fpsInterval);
-    }, []);
-
     // Refresh stream periodically
     useEffect(() => {
         if (!isConnected) return;
@@ -62,29 +192,19 @@ const VideoFeed = ({ className }) => {
         return () => clearInterval(refreshInterval);
     }, [isConnected]);
 
-    const handleFrameLoad = () => {
-        frameCountRef.current++;
+    // Determine grid layout based on camera count
+    const getGridClass = () => {
+        if (cameras.length === 1) return "";
+        if (cameras.length === 2) return "grid grid-cols-2 gap-2";
+        if (cameras.length <= 4) return "grid grid-cols-2 gap-2";
+        if (cameras.length <= 6) return "grid grid-cols-3 gap-2";
+        return "grid grid-cols-3 gap-2";
     };
 
-    return (
-        <div className={clsx("relative rounded-xl overflow-hidden bg-black border border-white/10 shadow-2xl group", className)}>
-            {/* Scanline overlay */}
-            <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.1)_50%)] bg-[length:100%_4px] pointer-events-none z-20 opacity-20" />
-            
-            {/* Vignette */}
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_50%,rgba(0,0,0,0.5)_100%)] pointer-events-none z-20" />
-
-            {/* Video stream */}
-            {isConnected ? (
-                <img
-                    ref={imgRef}
-                    src={VIDEO_SERVER_URL}
-                    alt="Live Feed"
-                    className="absolute inset-0 w-full h-full object-cover z-10"
-                    onLoad={handleFrameLoad}
-                    onError={() => setTimeout(() => setStreamKey(prev => prev + 1), 1000)}
-                />
-            ) : (
+    // If not connected, show the offline screen
+    if (!isConnected) {
+        return (
+            <div className={clsx("relative rounded-xl overflow-hidden bg-black border border-white/10 shadow-2xl", className)}>
                 <div className="absolute inset-0 flex items-center justify-center bg-obsidian z-10">
                     <div className="text-center p-8 relative z-20">
                         {/* Animated radar effect */}
@@ -99,7 +219,7 @@ const VideoFeed = ({ className }) => {
                                 <div className="absolute top-1/2 left-1/2 w-1/2 h-0.5 bg-gradient-to-r from-neon-red to-transparent origin-left animate-spin" style={{ animationDuration: '3s' }} />
                             </div>
                         </div>
-                        
+
                         <p className="text-neon-red font-mono tracking-[0.3em] mb-2 text-sm animate-pulse">SIGNAL LOST</p>
                         <p className="text-slate-500 text-xs font-mono max-w-xs">
                             {error || "ESTABLISHING CONNECTION..."}
@@ -109,127 +229,56 @@ const VideoFeed = ({ className }) => {
                         </p>
                     </div>
                 </div>
-            )}
+            </div>
+        );
+    }
 
-            {/* HUD Overlay */}
-            <div className="absolute inset-0 z-30 pointer-events-none p-4 flex flex-col justify-between">
-                {/* Top HUD */}
-                <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-3">
-                        {/* Recording indicator */}
-                        <div className={clsx(
-                            "flex items-center gap-2 px-3 py-1.5 border rounded-lg backdrop-blur-md transition-all",
-                            isConnected
-                                ? isTestMode
-                                    ? "bg-yellow-500/10 border-yellow-500/30"
-                                    : "bg-neon-red/10 border-neon-red/30"
-                                : "bg-slate-800/50 border-slate-700"
-                        )}>
-                            {isTestMode ? (
-                                <BeakerIcon className="w-4 h-4 text-yellow-400" />
-                            ) : (
-                                <div className={clsx(
-                                    "w-2.5 h-2.5 rounded-full shadow-[0_0_10px_currentColor]",
-                                    isConnected ? "bg-neon-red animate-pulse" : "bg-slate-500"
-                                )} />
-                            )}
-                            <span className={clsx(
-                                "text-[10px] font-bold tracking-[0.2em]",
-                                isTestMode ? "text-yellow-400" : isConnected ? "text-neon-red" : "text-slate-500"
-                            )}>
-                                {isTestMode ? "DEMO" : isConnected ? "REC" : "OFFLINE"}
-                            </span>
-                        </div>
+    // Single camera - use the original full-size layout
+    if (cameras.length === 1) {
+        return (
+            <div className={clsx("relative", className)}>
+                <CameraFeed
+                    camera={cameras[0]}
+                    streamKey={streamKey}
+                    isTestMode={isTestMode}
+                    currentScenario={currentScenario}
+                    isSingleCamera={true}
+                />
+            </div>
+        );
+    }
 
-                        {/* FPS counter */}
-                        {isConnected && (
-                            <div className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-white/10 rounded backdrop-blur-md">
-                                <SignalIcon className="w-3 h-3 text-neon-green" />
-                                <span className="text-[10px] font-mono text-neon-green">{fps} FPS</span>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Camera info */}
-                    <div className="text-right space-y-1">
-                        <div className="text-[10px] font-mono text-neon-blue/70 tracking-wider">ISO 800</div>
-                        <div className="text-[10px] font-mono text-neon-blue/70 tracking-wider">F/2.8</div>
-                        <div className="text-[10px] font-mono text-neon-blue/70 tracking-wider">1/30s</div>
-                    </div>
+    // Multiple cameras - display in a grid
+    return (
+        <div className={clsx("relative", className)}>
+            {/* Header for multi-camera view */}
+            <div className="flex items-center justify-between mb-3 px-1">
+                <div className="flex items-center gap-2">
+                    <VideoCameraIcon className="w-4 h-4 text-neon-blue" />
+                    <span className="text-xs font-mono text-neon-blue tracking-wider">
+                        MULTI-CAMERA VIEW
+                    </span>
+                    <span className="text-xs font-mono text-slate-500">
+                        ({cameras.length} cameras)
+                    </span>
                 </div>
-
-                {/* Center crosshair */}
-                {isConnected && (
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                        <div className="relative w-16 h-16">
-                            {/* Rotating outer ring */}
-                            <div className="absolute inset-0 border border-neon-blue/30 rounded-full animate-spin" style={{ animationDuration: '8s' }}>
-                                <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1 w-1 h-2 bg-neon-blue/50" />
-                            </div>
-                            {/* Inner circle */}
-                            <div className="absolute inset-3 border border-neon-blue/40 rounded-full flex items-center justify-center">
-                                <div className="w-1.5 h-1.5 bg-neon-blue rounded-full shadow-[0_0_8px_#00f3ff]" />
-                            </div>
-                            {/* Crosshair lines */}
-                            <div className="absolute top-1/2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-neon-blue/30 to-transparent" />
-                            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-neon-blue/30 to-transparent" />
-                        </div>
-                    </div>
-                )}
-
-                {/* Test mode scenario banner */}
-                {isTestMode && isConnected && currentScenario && (
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 translate-y-16">
-                        <div className="px-6 py-3 bg-black/70 border border-yellow-500/50 rounded-lg backdrop-blur-md text-center">
-                            <span className="text-[10px] font-mono text-yellow-400 tracking-[0.2em] block mb-1">
-                                DEMO MODE
-                            </span>
-                            <span className="text-lg font-mono text-white font-bold">
-                                {currentScenario}
-                            </span>
-                        </div>
-                    </div>
-                )}
-
-                {/* Bottom HUD */}
-                <div className="flex justify-between items-end">
-                    {/* Signal strength bars */}
-                    <div className="flex items-end gap-0.5">
-                        {[...Array(5)].map((_, i) => (
-                            <div 
-                                key={i} 
-                                className={clsx(
-                                    "w-1.5 rounded-sm transition-all",
-                                    isConnected ? "bg-neon-blue" : "bg-slate-700"
-                                )}
-                                style={{ height: `${(i + 1) * 4}px`, opacity: isConnected ? 1 - (i * 0.15) : 0.3 }}
-                            />
-                        ))}
-                    </div>
-
-                    {/* Timestamp */}
-                    <div className="text-center">
-                        <div className="text-[10px] font-mono text-neon-blue/50 tracking-[0.15em]">
-                            AEGIS VISION SENTINEL V3.0
-                        </div>
-                        <div className="text-[9px] font-mono text-slate-500">
-                            7-STAGE PARALLAX AI PIPELINE
-                        </div>
-                    </div>
-
-                    {/* Grid pattern indicator */}
-                    <div className="grid grid-cols-3 gap-0.5">
-                        {[...Array(9)].map((_, i) => (
-                            <div 
-                                key={i} 
-                                className={clsx(
-                                    "w-1.5 h-1.5 rounded-sm",
-                                    isConnected ? "bg-neon-blue/30" : "bg-slate-700/30"
-                                )}
-                            />
-                        ))}
-                    </div>
+                <div className="text-[10px] font-mono text-slate-500">
+                    AEGIS SENTINEL V3.0 | PARALLAX AI
                 </div>
+            </div>
+
+            {/* Camera grid */}
+            <div className={getGridClass()}>
+                {cameras.map((camera) => (
+                    <CameraFeed
+                        key={camera.index}
+                        camera={camera}
+                        streamKey={streamKey}
+                        isTestMode={isTestMode}
+                        currentScenario={currentScenario}
+                        isSingleCamera={false}
+                    />
+                ))}
             </div>
         </div>
     );
