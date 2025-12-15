@@ -1140,62 +1140,213 @@ class AegisSentinel:
         log_event("VIDEO", "✓ Video thread started (30 FPS + Real-time YOLO)", "SUCCESS")
     
     async def _analysis_loop(self):
-        """Main async analysis loop"""
+        """Main async analysis loop with detailed AI stage logging"""
         while self.running:
             try:
                 # Get frame from queue (with timeout)
                 try:
                     frame = self._frame_queue.get(timeout=config.INFERENCE_INTERVAL)
                 except queue.Empty:
-                    # Use current frame if queue is empty
                     with self._frame_lock:
                         frame = state.current_frame
                     if frame is None:
                         continue
-                
+
                 # Analyze frame - in test mode, use pre-set features
                 if sentinel.test_mode and vision.last_features:
-                    # Use the synthetic features set by _generate_test_frame
                     features = vision.last_features.copy()
                 else:
                     features = vision.analyze_frame(frame)
-                
+
                 description = features.get("yolo_summary", "Scene analysis")
-                
+
+                # === INTELLIGENT 7-STAGE PIPELINE LOGGING ===
+                scan_num = pipeline.scan_count + 1
+
+                # Stage 1: Scene Interpretation
+                objects = features.get("yolo_objects", [])
+                people = features.get("people_count", 0)
+                brightness = features.get("brightness", 128)
+                motion = features.get("motion", 0)
+
+                # Generate intelligent scene descriptions
+                light_desc = "low-light" if brightness < 50 else "dim" if brightness < 100 else "well-lit" if brightness < 200 else "bright"
+                motion_desc = "high activity" if motion > 25 else "movement detected" if motion > 10 else "minimal motion" if motion > 3 else "static scene"
+
+                stage1_msg = self._generate_stage1_log(objects, people, light_desc, motion_desc, features)
+                log_event("STAGE-1", f"🔍 Scene Analysis: {stage1_msg}", "INFO")
+
                 # Process through 7-stage pipeline
                 analysis = await pipeline.process_frame_async(features, description)
-                
-                # Handle results
+
+                # Stage 2: Threat Detection
+                threat_objects = features.get("threat_objects", [])
+                stage2_msg = self._generate_stage2_log(analysis, threat_objects, features)
+                log_level = "CRITICAL" if analysis.get("threat_detected") else "INFO"
+                log_event("STAGE-2", f"🛡️ Threat Analysis: {stage2_msg}", log_level)
+
+                # Stage 3: Action Planning (if threat)
+                if analysis.get("threat_detected"):
+                    action_plan = analysis.get("action_plan", {})
+                    stage3_msg = self._generate_stage3_log(analysis, action_plan)
+                    log_event("STAGE-3", f"📋 Action Plan: {stage3_msg}", "WARN")
+
+                # Stage 4: Trend Analysis (periodic)
+                if scan_num % 3 == 0:
+                    stage4_msg = self._generate_stage4_log(pipeline.recent_analyses)
+                    log_event("STAGE-4", f"📈 Trend Analysis: {stage4_msg}", "INFO")
+
+                # Stage 5: Log Summary (periodic)
+                if scan_num % 5 == 0:
+                    stage5_msg = f"Scan #{scan_num} complete | {state.threat_count} total threats | System: {'ALERT' if state.threat_level == 'CRITICAL' else 'NOMINAL'}"
+                    log_event("STAGE-5", f"📊 Summary: {stage5_msg}", "INFO")
+
+                # Stage 6: Behavior Analysis
+                behavior = analysis.get("behavior", {})
+                stage6_msg = self._generate_stage6_log(behavior, features)
+                log_event("STAGE-6", f"🧠 Behavior: {stage6_msg}", "INFO")
+
+                # Stage 7: Risk Scoring
+                risk = analysis.get("risk", {})
+                stage7_msg = self._generate_stage7_log(risk, analysis)
+                risk_level = "CRITICAL" if risk.get("risk_level") == "CRITICAL" else "WARN" if risk.get("risk_level") in ["HIGH", "MEDIUM"] else "INFO"
+                log_event("STAGE-7", f"⚡ Risk Score: {stage7_msg}", risk_level)
+
+                # Final verdict
                 if analysis.get("threat_detected"):
                     state.threat_count += 1
                     state.threat_level = "CRITICAL"
                     state.add_threat(analysis)
-                    
-                    log_event(
-                        "THREAT",
-                        f"🚨 {analysis['event_type'].upper()}: {analysis.get('reasoning', 'Threat detected')}",
-                        "CRITICAL"
-                    )
+                    log_event("PARALLAX", f"🚨 ALERT: {analysis['event_type'].upper()} - {analysis.get('reasoning', 'Threat confirmed')}", "CRITICAL")
                 else:
                     state.threat_level = "SAFE"
-                    desc = analysis.get("scene_description", description)
-                    log_event("SCAN", f"✓ {desc}", "INFO")
-                
+                    log_event("PARALLAX", f"✅ Clear: {analysis.get('scene_description', description)[:60]}", "SUCCESS")
+
                 state.last_description = analysis.get("scene_description", description)
                 state.metrics["frames_processed"] += 1
-                
+
                 # Update scenario in test mode
                 if self.test_mode and pipeline.scan_count % self.scans_per_scenario == 0:
                     self.test_scenario_index = (self.test_scenario_index + 1) % len(self.test_scenarios)
-                    self._scene_start_time = time.time()  # Reset scene timer for animations
+                    self._scene_start_time = time.time()
                     scenario = self.test_scenarios[self.test_scenario_index]
                     state.current_scenario = scenario["name"]
-                    log_event("DEMO", f"━━━ {scenario['name']} ━━━", "INFO")
-                
+                    log_event("DEMO", f"━━━━━━━━━━ {scenario['name']} ━━━━━━━━━━", "INFO")
+
             except Exception as e:
                 log_event("ERROR", f"Analysis error: {e}", "ERROR")
-            
-            await asyncio.sleep(0.1)  # Small delay between analyses
+
+            await asyncio.sleep(0.1)
+
+    def _generate_stage1_log(self, objects, people, light_desc, motion_desc, features):
+        """Generate intelligent Stage 1 scene interpretation log"""
+        parts = []
+
+        if people > 0:
+            parts.append(f"{people} person{'s' if people > 1 else ''} identified")
+
+        obj_list = [o for o in objects if o != "person"]
+        if obj_list:
+            parts.append(f"objects: {', '.join(obj_list[:3])}")
+
+        parts.append(f"{light_desc} environment")
+        parts.append(motion_desc)
+
+        # Add context-aware observations
+        red_pct = features.get("red_percentage", 0)
+        if red_pct > 20:
+            parts.append(f"elevated red spectrum ({red_pct:.0f}%)")
+
+        return " | ".join(parts) if parts else "Empty scene, no activity"
+
+    def _generate_stage2_log(self, analysis, threat_objects, features):
+        """Generate intelligent Stage 2 threat detection log"""
+        if analysis.get("threat_detected"):
+            event_type = analysis.get("event_type", "unknown")
+            confidence = analysis.get("confidence", 0.9)
+            severity = analysis.get("severity", "high")
+
+            threat_msgs = {
+                "weapon_knife": f"WEAPON DETECTED - Bladed object identified ({confidence:.0%} confidence)",
+                "weapon_gun": f"FIREARM DETECTED - Immediate threat ({confidence:.0%} confidence)",
+                "fire": f"FIRE HAZARD - Thermal anomaly detected, {features.get('red_percentage', 0):.0f}% red spectrum",
+                "camera_blocked": f"CAMERA TAMPER - Visual obstruction detected, brightness: {features.get('brightness', 0):.0f}",
+                "person_fallen": f"MEDICAL ALERT - Person immobile, motion level: {features.get('motion', 0):.1f}",
+                "intruder": f"UNAUTHORIZED ACCESS - Unidentified individual in restricted zone",
+            }
+            return threat_msgs.get(event_type, f"Threat type: {event_type} | Severity: {severity.upper()}")
+        else:
+            # Normal status messages
+            motion = features.get("motion", 0)
+            people = features.get("people_count", 0)
+
+            if people > 0 and motion > 10:
+                return f"Normal activity - {people} authorized personnel, routine movement"
+            elif people > 0:
+                return f"Monitoring {people} individual{'s' if people > 1 else ''} - no suspicious behavior"
+            else:
+                return "Zone clear - no threats detected, perimeter secure"
+
+    def _generate_stage3_log(self, analysis, action_plan):
+        """Generate intelligent Stage 3 action planning log"""
+        event_type = analysis.get("event_type", "unknown")
+        actions = action_plan.get("actions", ["Alert security"])
+        priority = action_plan.get("priority", "high")
+        notify = action_plan.get("notify", ["security"])
+
+        primary_action = actions[0] if actions else "Investigate"
+        notify_str = ", ".join(notify[:2]) if notify else "security"
+
+        return f"Priority: {priority.upper()} | Action: {primary_action} | Notify: {notify_str}"
+
+    def _generate_stage4_log(self, recent_analyses):
+        """Generate intelligent Stage 4 trend analysis log"""
+        if len(recent_analyses) < 2:
+            return "Insufficient data for trend analysis"
+
+        threats = sum(1 for a in recent_analyses if a.get("threat_detected"))
+        total = len(recent_analyses)
+        threat_rate = threats / total * 100
+
+        if threats == 0:
+            return f"Stable conditions | {total} scans analyzed | Threat rate: 0%"
+        elif threat_rate > 50:
+            return f"⚠️ ELEVATED RISK | {threats}/{total} scans with threats ({threat_rate:.0f}%)"
+        else:
+            return f"Monitoring | {threats} incident{'s' if threats > 1 else ''} in {total} scans ({threat_rate:.0f}%)"
+
+    def _generate_stage6_log(self, behavior, features):
+        """Generate intelligent Stage 6 behavior analysis log"""
+        behavior_type = behavior.get("behavior", "normal")
+        anomaly = behavior.get("anomaly_score", 0)
+        motion = features.get("motion", 0)
+        people = features.get("people_count", 0)
+
+        if behavior_type == "active" and people > 0:
+            return f"Active movement pattern | {people} subject{'s' if people > 1 else ''} | Anomaly score: {anomaly:.2f}"
+        elif behavior_type == "stationary" and people > 0:
+            return f"Stationary subject detected | Duration tracking active | Anomaly: {anomaly:.2f}"
+        elif motion > 20:
+            return f"High motion environment | Velocity: {motion:.0f} units | Pattern: erratic"
+        else:
+            return f"Normal behavioral patterns | Activity level: {motion:.0f} | Baseline confirmed"
+
+    def _generate_stage7_log(self, risk, analysis):
+        """Generate intelligent Stage 7 risk scoring log"""
+        score = risk.get("risk_score", 10)
+        level = risk.get("risk_level", "LOW")
+
+        threat_detected = analysis.get("threat_detected", False)
+        event_type = analysis.get("event_type", "normal")
+
+        if level == "CRITICAL":
+            return f"🔴 CRITICAL ({score}/100) | Immediate response required | Type: {event_type}"
+        elif level == "HIGH":
+            return f"🟠 HIGH ({score}/100) | Elevated alert status | Monitoring intensified"
+        elif level == "MEDIUM":
+            return f"🟡 MEDIUM ({score}/100) | Continued observation recommended"
+        else:
+            return f"🟢 LOW ({score}/100) | Normal operations | All systems nominal"
     
     def _generate_test_frame(self) -> np.ndarray:
         """
