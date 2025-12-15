@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AEGIS - AI Security System | Gradient Cloud Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-green: #0aff68;
+            --neon-red: #ff003c;
+            --neon-purple: #a855f7;
+            --obsidian: #0a0a0f;
+        }
+
+        * { font-family: 'JetBrains Mono', monospace; }
+        body { background: var(--obsidian); color: white; overflow: hidden; }
+
+        .glass-panel {
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .neon-blue { color: var(--neon-blue); }
+        .neon-green { color: var(--neon-green); }
+        .neon-red { color: var(--neon-red); }
+        .neon-purple { color: var(--neon-purple); }
+
+        .glow-blue { text-shadow: 0 0 10px var(--neon-blue), 0 0 20px var(--neon-blue); }
+        .glow-green { text-shadow: 0 0 10px var(--neon-green), 0 0 20px var(--neon-green); }
+        .glow-red { text-shadow: 0 0 10px var(--neon-red), 0 0 20px var(--neon-red); }
+
+        .scanline {
+            background: linear-gradient(transparent 50%, rgba(0, 0, 0, 0.1) 50%);
+            background-size: 100% 4px;
+        }
+
+        @keyframes scanline-move {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(100vh); }
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        @keyframes spin-slow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .animate-scanline { animation: scanline-move 3s linear infinite; }
+        .animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+        .animate-spin-slow { animation: spin-slow 10s linear infinite; }
+
+        .corner-bracket {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border-color: var(--neon-blue);
+            transition: all 0.3s;
+        }
+        .corner-tl { top: 0; left: 0; border-top: 2px solid; border-left: 2px solid; }
+        .corner-tr { top: 0; right: 0; border-top: 2px solid; border-right: 2px solid; }
+        .corner-bl { bottom: 0; left: 0; border-bottom: 2px solid; border-left: 2px solid; }
+        .corner-br { bottom: 0; right: 0; border-bottom: 2px solid; border-right: 2px solid; }
+
+        .video-container:hover .corner-bracket { width: 60px; height: 60px; }
+
+        #videoElement { display: none; }
+
+        .detection-box {
+            position: absolute;
+            border: 2px solid var(--neon-green);
+            background: rgba(10, 255, 104, 0.1);
+            pointer-events: none;
+        }
+        .detection-box.threat {
+            border-color: var(--neon-red);
+            background: rgba(255, 0, 60, 0.2);
+        }
+        .detection-label {
+            position: absolute;
+            top: -24px;
+            left: 0;
+            padding: 2px 8px;
+            font-size: 10px;
+            font-weight: bold;
+            background: var(--neon-green);
+            color: black;
+        }
+        .detection-box.threat .detection-label {
+            background: var(--neon-red);
+            color: white;
+        }
+
+        .timer-bar {
+            height: 4px;
+            background: linear-gradient(90deg, var(--neon-green), var(--neon-blue));
+            transition: width 1s linear;
+        }
+
+        .pipeline-stage {
+            transition: all 0.3s;
+        }
+        .pipeline-stage.active {
+            transform: scale(1.02);
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+        }
+    </style>
+</head>
+<body class="h-screen overflow-hidden">
+    <!-- Animated Background -->
+    <div id="particles" class="fixed inset-0 pointer-events-none z-0"></div>
+
+    <!-- Threat Glow Overlay -->
+    <div id="threatOverlay" class="fixed inset-0 bg-red-500/0 pointer-events-none z-0 transition-all duration-500"></div>
+
+    <!-- Competition Badge -->
+    <div class="fixed top-4 right-4 z-50">
+        <div class="relative group">
+            <div class="absolute -inset-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-lg blur opacity-75 animate-pulse"></div>
+            <div class="relative px-4 py-2 bg-black rounded-lg flex items-center gap-3">
+                <span class="text-yellow-400 text-lg">🏆</span>
+                <div>
+                    <div class="text-[10px] text-slate-400 uppercase tracking-wider">Gradient AI Lab</div>
+                    <div class="text-sm font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">Competition 2025</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Stats Ticker -->
+    <div class="fixed top-0 left-0 right-0 z-40 flex items-center gap-6 px-4 py-2 bg-black/60 border-b border-white/5 text-xs overflow-hidden">
+        <div class="flex items-center gap-2 animate-pulse">
+            <div class="w-2 h-2 rounded-full bg-red-500"></div>
+            <span class="text-red-400">LIVE</span>
+        </div>
+        <div class="flex items-center gap-4 text-slate-400">
+            <span>⏱ <span id="currentTime">--:--:--</span></span>
+            <span class="text-slate-600">|</span>
+            <span>📊 SCANS: <span id="scanCount" class="neon-blue">0</span></span>
+            <span class="text-slate-600">|</span>
+            <span>⚠️ THREATS: <span id="threatCount" class="neon-green">0</span></span>
+            <span class="text-slate-600">|</span>
+            <span>🧠 MODEL: <span class="neon-purple">GPT-4o-mini</span></span>
+            <span class="text-slate-600">|</span>
+            <span>⏳ DEMO: <span id="remainingTime" class="neon-green">2:00</span></span>
+        </div>
+        <div class="absolute bottom-0 left-0 right-0 h-1 bg-white/10">
+            <div id="timerBar" class="timer-bar" style="width: 100%"></div>
+        </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="grid grid-cols-12 gap-4 h-screen pt-12 p-4">
+        <!-- Video Feed Area -->
+        <div class="col-span-12 lg:col-span-8 flex flex-col gap-4 h-full">
+            <!-- Video Feed -->
+            <div class="flex-1 relative rounded-xl overflow-hidden border-2 border-cyan-500/30 shadow-[0_0_50px_rgba(0,243,255,0.15)] bg-black/50 video-container">
+                <div class="corner-bracket corner-tl"></div>
+                <div class="corner-bracket corner-tr"></div>
+                <div class="corner-bracket corner-bl"></div>
+                <div class="corner-bracket corner-br"></div>
+
+                <div class="absolute inset-0 z-30 pointer-events-none overflow-hidden">
+                    <div class="absolute w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-50 animate-scanline"></div>
+                </div>
+
+                <video id="videoElement" autoplay playsinline muted></video>
+                <canvas id="videoCanvas" class="absolute inset-0 w-full h-full object-cover z-10"></canvas>
+                <div id="detectionBoxes" class="absolute inset-0 z-20 pointer-events-none"></div>
+
+                <!-- HUD Overlay -->
+                <div class="absolute inset-0 z-30 pointer-events-none p-4 flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <div class="flex items-center gap-3">
+                            <div id="recordingIndicator" class="flex items-center gap-2 px-3 py-1.5 border rounded-lg backdrop-blur-md bg-slate-800/50 border-slate-700">
+                                <div class="w-2.5 h-2.5 rounded-full bg-slate-500"></div>
+                                <span class="text-[10px] font-bold tracking-widest text-slate-500">OFFLINE</span>
+                            </div>
+                            <div id="fpsCounter" class="hidden items-center gap-2 px-2 py-1 bg-black/40 border border-white/10 rounded backdrop-blur-md">
+                                <span class="text-[10px] neon-green">-- FPS</span>
+                            </div>
+                        </div>
+                        <div class="text-right space-y-1 text-[10px] text-cyan-400/70 tracking-wider">
+                            <div>ISO 800</div><div>F/2.8</div><div>1/30s</div>
+                        </div>
+                    </div>
+
+                    <div id="crosshair" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                        <div class="relative w-16 h-16">
+                            <div class="absolute inset-0 border border-cyan-400/30 rounded-full animate-spin-slow">
+                                <div class="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1 w-1 h-2 bg-cyan-400/50"></div>
+                            </div>
+                            <div class="absolute inset-3 border border-cyan-400/40 rounded-full flex items-center justify-center">
+                                <div class="w-1.5 h-1.5 bg-cyan-400 rounded-full shadow-[0_0_8px_#00f3ff]"></div>
+                            </div>
+                            <div class="absolute top-1/2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent"></div>
+                            <div class="absolute left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-cyan-400/30 to-transparent"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between items-end">
+                        <div class="flex items-end gap-0.5" id="signalBars"></div>
+                        <div class="text-center">
+                            <div class="text-[10px] text-cyan-400/50 tracking-widest">AEGIS VISION SENTINEL V3.0</div>
+                            <div class="text-[9px] text-slate-500">7-STAGE GRADIENT CLOUD AI PIPELINE</div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-0.5" id="gridIndicator"></div>
+                    </div>
+                </div>
+
+                <!-- Offline Overlay -->
+                <div id="offlineOverlay" class="absolute inset-0 flex items-center justify-center bg-black/90 z-40">
+                    <div class="text-center p-8">
+                        <div class="relative w-24 h-24 mx-auto mb-6">
+                            <div class="absolute inset-0 rounded-full border-2 border-cyan-400/20 animate-ping"></div>
+                            <div class="absolute inset-2 rounded-full border-2 border-cyan-400/30 animate-ping" style="animation-delay: 0.5s"></div>
+                            <div class="absolute inset-0 rounded-full bg-cyan-400/5 flex items-center justify-center">
+                                <div class="w-3 h-3 bg-cyan-400 rounded-full shadow-[0_0_20px_#00f3ff] animate-pulse"></div>
+                            </div>
+                        </div>
+                        <p id="offlineStatus" class="neon-blue tracking-widest mb-2 text-sm animate-pulse">INITIALIZING...</p>
+                        <p id="offlineMessage" class="text-slate-500 text-xs max-w-xs">Click "Start Camera" to begin the demo</p>
+                        <button id="startCameraBtn" class="mt-6 px-8 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg text-white font-bold hover:opacity-90 transition-all">
+                            📹 Start Camera
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Network Diagram -->
+            <div class="shrink-0 glass-panel rounded-xl p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-xs neon-blue tracking-wider">NETWORK_TOPOLOGY</h3>
+                    <span class="text-[9px] px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">ACTIVE</span>
+                </div>
+                <div class="flex items-center justify-between text-[10px]">
+                    <div class="flex flex-col items-center">
+                        <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center mb-1">📹</div>
+                        <span class="text-slate-400">Browser</span>
+                    </div>
+                    <div class="flex-1 h-px bg-gradient-to-r from-blue-500 via-purple-500 to-green-500 mx-3 relative">
+                        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center mb-1">🧠</div>
+                        <span class="text-slate-400">Gradient</span>
+                    </div>
+                    <div class="flex-1 h-px bg-gradient-to-r from-purple-500 to-green-500 mx-3"></div>
+                    <div class="flex flex-col items-center">
+                        <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center mb-1">🛡️</div>
+                        <span class="text-slate-400">AEGIS</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-span-12 lg:col-span-4 flex flex-col gap-3 h-full overflow-hidden">
+            <!-- Threat Status -->
+            <div class="glass-panel rounded-xl p-4 shrink-0">
+                <div id="threatBadge" class="relative flex items-center justify-between p-4 rounded-xl border bg-gradient-to-br from-green-500/10 to-emerald-500/5 border-green-500/30 shadow-[0_0_30px_rgba(10,255,104,0.15)]">
+                    <div>
+                        <h3 class="text-[10px] font-bold text-slate-400 tracking-widest uppercase mb-1">THREAT ASSESSMENT</h3>
+                        <span id="threatLevelText" class="text-3xl font-black neon-green glow-green">SAFE</span>
+                        <div id="threatCountDisplay" class="hidden items-center gap-2 mt-2">
+                            <span class="text-sm neon-red font-bold"><span id="threatCountBadge">0</span> THREATS DETECTED</span>
+                        </div>
+                    </div>
+                    <div id="threatIcon" class="relative w-14 h-14 rounded-full flex items-center justify-center border-2 bg-green-500/10 border-green-500 shadow-[0_0_25px_rgba(10,255,104,0.4)]">
+                        <div class="absolute inset-0 rounded-full border-2 border-dashed border-green-500/30 animate-spin-slow"></div>
+                        <span class="text-2xl">🛡️</span>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 mt-3">
+                    <div id="gradientStatus" class="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-gradient-to-r from-purple-500/10 to-indigo-500/5 border-purple-500/30">
+                        <div class="relative"><span class="text-lg">🧠</span><div class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_#0aff68]"></div></div>
+                        <div><div class="text-[9px] tracking-wider text-slate-500">GRADIENT</div><div class="text-xs font-bold neon-purple">CONNECTED</div></div>
+                    </div>
+                    <div id="cameraStatus" class="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-white/5 border-white/10">
+                        <span class="text-lg">📹</span>
+                        <div><div class="text-[9px] tracking-wider text-slate-500">CAMERA</div><div class="text-xs font-bold text-slate-500">STANDBY</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Switcher -->
+            <div class="flex gap-1 shrink-0">
+                <button onclick="switchTab('pipeline')" class="tab-btn flex-1 py-2 px-3 rounded-lg text-xs tracking-wider transition-all bg-purple-500/20 neon-purple border border-purple-500/30" data-tab="pipeline">AI_PIPELINE</button>
+                <button onclick="switchTab('intel')" class="tab-btn flex-1 py-2 px-3 rounded-lg text-xs tracking-wider transition-all bg-white/5 text-slate-500 border border-white/10" data-tab="intel">🏆 AI_INTEL</button>
+            </div>
+
+            <!-- Content Area -->
+            <div class="flex-1 min-h-0 glass-panel rounded-xl overflow-hidden flex flex-col">
+                <!-- AI Pipeline Tab -->
+                <div id="pipelineTab" class="flex-1 overflow-auto p-4 space-y-3">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm neon-purple tracking-wider flex items-center gap-2">✨ GRADIENT_AI_PIPELINE</h3>
+                        <span class="text-[9px] px-2 py-0.5 rounded bg-green-500/20 neon-green border border-green-500/30">✓ ACTIVE</span>
+                    </div>
+                    <div class="relative p-3 rounded-lg bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-indigo-500/10 border border-purple-500/20 overflow-hidden">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2"><span class="text-yellow-400 animate-bounce">⚡</span><span class="text-sm font-bold">Up to 7 AI calls per scan!</span></div>
+                            <span class="text-[10px] neon-green">$0 CLOUD COSTS</span>
+                        </div>
+                    </div>
+                    <div id="pipelineStages" class="space-y-2"></div>
+                    <div class="pt-3 border-t border-white/5 flex items-center justify-between">
+                        <span class="text-[9px] text-slate-500">Gradient Cloud Inference</span>
+                        <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_#0aff68]"></div><span class="text-[9px] neon-green font-bold">DEMO MODE</span></div>
+                    </div>
+                </div>
+
+                <!-- AI Intel Tab -->
+                <div id="intelTab" class="hidden flex-1 overflow-auto p-4 space-y-4">
+                    <div class="glass-panel rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2"><span class="text-green-400 text-xl">💰</span><h3 class="text-lg font-bold">Cost Savings</h3></div>
+                            <span class="text-[10px] neon-green">🏆 ZERO CLOUD COSTS</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 mb-3">
+                            <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                                <p class="text-xs text-slate-400 mb-1">Cloud Alternative</p>
+                                <p class="text-xl font-bold text-red-400">$518.40/mo</p>
+                                <p class="text-[10px] text-slate-500">AWS Rekognition</p>
+                            </div>
+                            <div class="bg-green-500/10 border border-green-500/30 rounded-lg p-3">
+                                <p class="text-xs text-slate-400 mb-1">Parallax Local</p>
+                                <p class="text-xl font-bold neon-green">$0.00/mo</p>
+                                <p class="text-[10px] text-slate-500">100% Free</p>
+                            </div>
+                        </div>
+                        <div class="p-3 bg-green-500/5 border border-green-500/20 rounded-lg">
+                            <div class="flex justify-between"><span class="text-sm text-green-400">Annual Savings</span><span class="text-lg font-bold neon-green">$6,220.80</span></div>
+                        </div>
+                    </div>
+                    <div class="glass-panel rounded-xl p-4">
+                        <div class="flex items-center gap-2 mb-4">
+                            <span class="text-xl">✨</span><h3 class="text-lg font-bold">Ask AEGIS AI</h3>
+                            <span class="ml-auto text-[10px] neon-purple">🏆 COMPETITION FEATURE</span>
+                        </div>
+                        <div class="mb-3">
+                            <p class="text-xs text-slate-400 mb-2">Quick questions:</p>
+                            <div class="flex flex-wrap gap-2">
+                                <button onclick="askQuestion('Was anyone detected?')" class="px-3 py-1 text-xs bg-purple-500/10 border border-purple-500/30 rounded-lg hover:bg-purple-500/20 transition neon-purple">Was anyone detected?</button>
+                                <button onclick="askQuestion('Any threats?')" class="px-3 py-1 text-xs bg-purple-500/10 border border-purple-500/30 rounded-lg hover:bg-purple-500/20 transition neon-purple">Any threats?</button>
+                            </div>
+                        </div>
+                        <div class="flex gap-2 mb-3">
+                            <input id="queryInput" type="text" placeholder="Ask about your security footage..." class="flex-1 bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/50" onkeypress="if(event.key==='Enter')askQuestion()">
+                            <button onclick="askQuestion()" class="px-6 py-2 rounded-lg font-medium bg-purple-500 hover:bg-purple-600 transition">Ask</button>
+                        </div>
+                        <div id="queryAnswer" class="hidden p-4 rounded-xl bg-purple-500/5 border border-purple-500/30">
+                            <p id="answerText" class="text-white mb-2"></p>
+                            <div class="flex items-center gap-4 text-xs text-slate-400"><span id="answerConfidence"></span><span id="answerTime"></span></div>
+                        </div>
+                        <div class="mt-4 text-center"><p class="text-xs text-slate-500">Powered by <span class="neon-purple font-semibold">Gradient Cloud AI</span></p></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scene Description -->
+            <div class="shrink-0 glass-panel rounded-xl p-3">
+                <div class="text-[10px] text-slate-500 mb-1">SCENE ANALYSIS</div>
+                <p id="sceneDescription" class="text-sm text-white truncate">Waiting for camera...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rate Limit Modal -->
+    <div id="rateLimitModal" class="hidden fixed inset-0 bg-black/90 z-50 flex items-center justify-center">
+        <div class="glass-panel rounded-2xl p-8 max-w-md text-center">
+            <div class="text-6xl mb-4">⏰</div>
+            <h2 class="text-2xl font-bold mb-2">Demo Time Limit Reached</h2>
+            <p class="text-slate-400 mb-4">You've used your 2-minute demo allocation. The full version with Parallax runs unlimited with no cloud costs!</p>
+            <p class="text-sm text-slate-500">Come back in 10 minutes for another demo session.</p>
+            <a href="https://github.com/shariqazeem/AEGIS" target="_blank" class="mt-6 inline-block px-8 py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg font-bold hover:opacity-90 transition">View Full Project on GitHub →</a>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let ws = null, videoStream = null, isConnected = false, scanCount = 0, threatCount = 0, remainingSeconds = 120;
+        let fps = 0, frameCount = 0, lastFpsTime = Date.now(), currentPulseStage = 0;
+
+        const videoElement = document.getElementById('videoElement');
+        const videoCanvas = document.getElementById('videoCanvas');
+        const ctx = videoCanvas.getContext('2d');
+        const detectionBoxes = document.getElementById('detectionBoxes');
+        const offlineOverlay = document.getElementById('offlineOverlay');
+        const startCameraBtn = document.getElementById('startCameraBtn');
+        const recordingIndicator = document.getElementById('recordingIndicator');
+        const threatOverlay = document.getElementById('threatOverlay');
+
+        const pipelineStages = [
+            { name: "Scene Interpretation", desc: "CV → language", color: "from-purple-500 to-indigo-500" },
+            { name: "Threat Detection", desc: "AI threat analysis", color: "from-red-500 to-orange-500" },
+            { name: "Action Planning", desc: "Response planning", color: "from-green-500 to-emerald-500" },
+            { name: "Trend Analysis", desc: "Pattern detection", color: "from-blue-500 to-cyan-500" },
+            { name: "Log Summary", desc: "Report generation", color: "from-yellow-500 to-amber-500" },
+            { name: "Behavior Analysis", desc: "Activity patterns", color: "from-pink-500 to-rose-500" },
+            { name: "Risk Scoring", desc: "Risk assessment", color: "from-indigo-500 to-violet-500" }
+        ];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initParticles(); initSignalBars(); initGridIndicator(); initPipelineStages();
+            updateTime(); setInterval(updateTime, 1000); setInterval(updateFPS, 1000); setInterval(animatePipeline, 600);
+            startCameraBtn.addEventListener('click', startCamera);
+        });
+
+        function initParticles() {
+            const container = document.getElementById('particles');
+            for (let i = 0; i < 30; i++) {
+                const p = document.createElement('div');
+                p.className = 'absolute rounded-full bg-cyan-400/20 animate-pulse';
+                p.style.cssText = `left:${Math.random()*100}%;top:${Math.random()*100}%;width:${Math.random()*3+1}px;height:${p.style.width};animation-duration:${Math.random()*20+10}s;animation-delay:${Math.random()*5}s`;
+                container.appendChild(p);
+            }
+        }
+
+        function initSignalBars() {
+            const c = document.getElementById('signalBars');
+            for (let i = 0; i < 5; i++) { const b = document.createElement('div'); b.className = 'w-1.5 rounded-sm bg-slate-700'; b.style.height = `${(i+1)*4}px`; b.style.opacity = '0.3'; c.appendChild(b); }
+        }
+
+        function initGridIndicator() {
+            const c = document.getElementById('gridIndicator');
+            for (let i = 0; i < 9; i++) { const cell = document.createElement('div'); cell.className = 'w-1.5 h-1.5 rounded-sm bg-slate-700/30'; c.appendChild(cell); }
+        }
+
+        function initPipelineStages() {
+            const c = document.getElementById('pipelineStages');
+            pipelineStages.forEach((s, i) => {
+                const d = document.createElement('div');
+                d.className = 'pipeline-stage relative flex items-center gap-3 p-2 rounded-lg border bg-gradient-to-r from-white/5 to-transparent border-white/10';
+                d.dataset.index = i;
+                d.innerHTML = `<div class="relative w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold bg-gradient-to-br ${s.color} text-white shadow-lg shrink-0">${i+1}</div><div class="flex-1 min-w-0"><div class="flex items-center gap-2"><span class="text-[11px] font-medium truncate">${s.name}</span></div><span class="text-[9px] text-slate-500">${s.desc}</span></div><div class="flex items-center gap-1 shrink-0"><span class="text-[8px] neon-purple">Gradient</span><span class="text-green-500">✓</span></div>`;
+                c.appendChild(d);
+            });
+        }
+
+        function animatePipeline() {
+            if (!isConnected) return;
+            document.querySelectorAll('.pipeline-stage').forEach((s, i) => s.classList.toggle('active', i === currentPulseStage));
+            currentPulseStage = (currentPulseStage + 1) % 7;
+        }
+
+        function updateTime() { document.getElementById('currentTime').textContent = new Date().toLocaleTimeString(); }
+
+        function updateFPS() {
+            const now = Date.now(), elapsed = (now - lastFpsTime) / 1000;
+            fps = Math.round(frameCount / elapsed); frameCount = 0; lastFpsTime = now;
+            if (isConnected) { const f = document.getElementById('fpsCounter'); f.classList.remove('hidden'); f.classList.add('flex'); f.querySelector('span').textContent = `${fps} FPS`; }
+        }
+
+        async function startCamera() {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+                videoElement.srcObject = videoStream; await videoElement.play();
+                videoCanvas.width = videoElement.videoWidth || 1280; videoCanvas.height = videoElement.videoHeight || 720;
+                connectWebSocket();
+                offlineOverlay.classList.add('hidden'); document.getElementById('crosshair').classList.remove('hidden');
+                updateRecordingIndicator(true); updateCameraStatus(true); updateSignalBars(true);
+                sendFrames();
+            } catch (err) {
+                console.error('Camera error:', err);
+                document.getElementById('offlineStatus').textContent = 'CAMERA ERROR';
+                document.getElementById('offlineMessage').textContent = err.message;
+            }
+        }
+
+        function connectWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/camera`);
+            ws.onopen = () => { console.log('WebSocket connected'); isConnected = true; };
+            ws.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                if (data.error === 'rate_limited') { showRateLimitModal(); return; }
+                updateDetections(data.boxes || []); updateThreatLevel(data.threat_level || 'SAFE');
+                updateSceneDescription(data.description || ''); updateRemainingTime(data.remaining_seconds);
+                scanCount = data.scan_count || scanCount; document.getElementById('scanCount').textContent = scanCount;
+            };
+            ws.onclose = () => { console.log('WebSocket closed'); isConnected = false; updateRecordingIndicator(false); };
+            ws.onerror = (err) => console.error('WebSocket error:', err);
+        }
+
+        function sendFrames() {
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) { requestAnimationFrame(sendFrames); return; }
+            ctx.drawImage(videoElement, 0, 0, videoCanvas.width, videoCanvas.height); frameCount++;
+            if (frameCount % 3 === 0) ws.send(JSON.stringify({ frame: videoCanvas.toDataURL('image/jpeg', 0.7) }));
+            requestAnimationFrame(sendFrames);
+        }
+
+        function updateDetections(boxes) {
+            detectionBoxes.innerHTML = '';
+            const rect = videoCanvas.getBoundingClientRect(), scaleX = rect.width / videoCanvas.width, scaleY = rect.height / videoCanvas.height;
+            boxes.forEach(det => {
+                const [x1, y1, x2, y2] = det.box, isThreat = ['knife', 'scissors', 'gun'].includes(det.label.toLowerCase());
+                const box = document.createElement('div');
+                box.className = `detection-box ${isThreat ? 'threat' : ''}`;
+                box.style.cssText = `left:${x1*scaleX}px;top:${y1*scaleY}px;width:${(x2-x1)*scaleX}px;height:${(y2-y1)*scaleY}px`;
+                const label = document.createElement('div'); label.className = 'detection-label'; label.textContent = `${det.label} ${(det.confidence*100).toFixed(0)}%`;
+                box.appendChild(label); detectionBoxes.appendChild(box);
+            });
+        }
+
+        function updateThreatLevel(level) {
+            const badge = document.getElementById('threatBadge'), text = document.getElementById('threatLevelText'), icon = document.getElementById('threatIcon');
+            if (level === 'CRITICAL') {
+                threatCount++; badge.className = 'relative flex items-center justify-between p-4 rounded-xl border bg-gradient-to-br from-red-500/10 to-red-500/5 border-red-500/30 shadow-[0_0_40px_rgba(255,0,60,0.25)]';
+                text.className = 'text-3xl font-black neon-red glow-red animate-pulse'; icon.className = 'relative w-14 h-14 rounded-full flex items-center justify-center border-2 bg-red-500/10 border-red-500 shadow-[0_0_30px_rgba(255,0,60,0.5)]';
+                icon.innerHTML = '<div class="absolute inset-0 rounded-full border-2 border-dashed border-red-500/30 animate-spin-slow"></div><span class="text-2xl animate-bounce">⚠️</span>';
+                threatOverlay.style.backgroundColor = 'rgba(255, 0, 60, 0.05)';
+                document.getElementById('threatCountDisplay').classList.remove('hidden'); document.getElementById('threatCountDisplay').classList.add('flex');
+                document.getElementById('threatCountBadge').textContent = threatCount; document.getElementById('threatCount').textContent = threatCount;
+                document.getElementById('threatCount').className = 'neon-red animate-pulse';
+            } else {
+                badge.className = 'relative flex items-center justify-between p-4 rounded-xl border bg-gradient-to-br from-green-500/10 to-emerald-500/5 border-green-500/30 shadow-[0_0_30px_rgba(10,255,104,0.15)]';
+                text.className = 'text-3xl font-black neon-green glow-green'; icon.className = 'relative w-14 h-14 rounded-full flex items-center justify-center border-2 bg-green-500/10 border-green-500 shadow-[0_0_25px_rgba(10,255,104,0.4)]';
+                icon.innerHTML = '<div class="absolute inset-0 rounded-full border-2 border-dashed border-green-500/30 animate-spin-slow"></div><span class="text-2xl">🛡️</span>';
+                threatOverlay.style.backgroundColor = 'transparent';
+            }
+            text.textContent = level;
+        }
+
+        function updateSceneDescription(desc) { document.getElementById('sceneDescription').textContent = desc || 'Analyzing scene...'; }
+
+        function updateRemainingTime(seconds) {
+            remainingSeconds = seconds; const mins = Math.floor(seconds / 60), secs = Math.floor(seconds % 60);
+            document.getElementById('remainingTime').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+            document.getElementById('timerBar').style.width = `${(seconds / 120) * 100}%`;
+            if (seconds < 30) document.getElementById('remainingTime').className = 'neon-red animate-pulse';
+        }
+
+        function updateRecordingIndicator(active) {
+            const i = recordingIndicator;
+            if (active) { i.className = 'flex items-center gap-2 px-3 py-1.5 border rounded-lg backdrop-blur-md bg-red-500/10 border-red-500/30'; i.innerHTML = '<div class="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_10px_#ff003c]"></div><span class="text-[10px] font-bold tracking-widest text-red-400">REC</span>'; }
+            else { i.className = 'flex items-center gap-2 px-3 py-1.5 border rounded-lg backdrop-blur-md bg-slate-800/50 border-slate-700'; i.innerHTML = '<div class="w-2.5 h-2.5 rounded-full bg-slate-500"></div><span class="text-[10px] font-bold tracking-widest text-slate-500">OFFLINE</span>'; }
+        }
+
+        function updateCameraStatus(active) {
+            const s = document.getElementById('cameraStatus');
+            if (active) s.innerHTML = '<div class="relative"><span class="text-lg">📹</span><div class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_#ff003c]"></div></div><div><div class="text-[9px] tracking-wider text-slate-500">CAMERA</div><div class="text-xs font-bold neon-blue">STREAMING</div></div>';
+        }
+
+        function updateSignalBars(active) {
+            const bars = document.getElementById('signalBars').children;
+            for (let i = 0; i < bars.length; i++) { bars[i].className = active ? 'w-1.5 rounded-sm bg-cyan-400' : 'w-1.5 rounded-sm bg-slate-700'; bars[i].style.opacity = active ? (1 - i * 0.15) : '0.3'; }
+        }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.className = btn.dataset.tab === tab ? 'tab-btn flex-1 py-2 px-3 rounded-lg text-xs tracking-wider transition-all bg-purple-500/20 neon-purple border border-purple-500/30' : 'tab-btn flex-1 py-2 px-3 rounded-lg text-xs tracking-wider transition-all bg-white/5 text-slate-500 border border-white/10';
+            });
+            document.getElementById('pipelineTab').classList.toggle('hidden', tab !== 'pipeline');
+            document.getElementById('intelTab').classList.toggle('hidden', tab !== 'intel');
+        }
+
+        async function askQuestion(q) {
+            const question = q || document.getElementById('queryInput').value;
+            if (!question.trim()) return;
+            try {
+                const res = await fetch(`${API_BASE}/query`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) });
+                const data = await res.json();
+                document.getElementById('queryAnswer').classList.remove('hidden');
+                document.getElementById('answerText').textContent = data.answer || 'No response';
+                document.getElementById('answerConfidence').textContent = `Confidence: ${((data.confidence || 0) * 100).toFixed(0)}%`;
+                document.getElementById('answerTime').textContent = `${(data.inference_time_ms || 0).toFixed(0)}ms`;
+            } catch (err) { console.error('Query error:', err); }
+        }
+
+        function showRateLimitModal() {
+            document.getElementById('rateLimitModal').classList.remove('hidden');
+            if (ws) ws.close();
+            if (videoStream) videoStream.getTracks().forEach(t => t.stop());
+        }
+    </script>
+</body>
+</html>

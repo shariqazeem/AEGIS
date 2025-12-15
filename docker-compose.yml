@@ -1,0 +1,55 @@
+# AEGIS Web Sentinel - Docker Compose
+# Deploy on Ubuntu server with nginx reverse proxy and SSL
+
+version: '3.8'
+
+services:
+  aegis:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aegis-web-sentinel
+    restart: unless-stopped
+    environment:
+      - GRADIENT_API_KEY=${GRADIENT_API_KEY:-ak-f5a93640ff449cd3d44457a5be3172d212355e56fdc0709f0bd5d1a042bc0d89}
+    ports:
+      - "8001:8001"
+    networks:
+      - aegis-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8001/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  nginx:
+    image: nginx:alpine
+    container_name: aegis-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    depends_on:
+      - aegis
+    networks:
+      - aegis-network
+
+  # Optional: Certbot for SSL certificate renewal
+  certbot:
+    image: certbot/certbot
+    container_name: aegis-certbot
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    profiles:
+      - ssl
+
+networks:
+  aegis-network:
+    driver: bridge
