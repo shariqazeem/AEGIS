@@ -929,19 +929,24 @@ class AegisSentinel:
         self._analysis_thread = None
         self._frame_queue = queue.Queue(maxsize=config.MAX_FRAME_QUEUE)
         
-        # Test scenarios
+        # CINEMATIC TEST SCENARIOS - Ultra realistic demo
         self.test_scenarios = [
-            {"name": "👤 Normal Activity", "type": "normal", "threat": False},
-            {"name": "👥 Multiple People", "type": "multiple", "threat": False},
-            {"name": "🔪 WEAPON DETECTED", "type": "weapon", "threat": True},
-            {"name": "🔥 FIRE EMERGENCY", "type": "fire", "threat": True},
-            {"name": "⚠️ PERSON FALLEN", "type": "fallen", "threat": True},
-            {"name": "🚨 CAMERA BLOCKED", "type": "blocked", "threat": True},
-            {"name": "🌙 Night Mode", "type": "dark", "threat": False},
-            {"name": "✅ All Clear", "type": "empty", "threat": False},
+            {"name": "LOBBY ENTRANCE", "type": "lobby", "threat": False, "duration": 8},
+            {"name": "ROUTINE PATROL", "type": "patrol", "threat": False, "duration": 6},
+            {"name": "MOTION DETECTED", "type": "motion", "threat": False, "duration": 5},
+            {"name": "⚠️ INTRUDER ALERT", "type": "intruder", "threat": True, "duration": 7},
+            {"name": "🔪 WEAPON DETECTED", "type": "weapon", "threat": True, "duration": 8},
+            {"name": "🔥 FIRE EMERGENCY", "type": "fire", "threat": True, "duration": 7},
+            {"name": "🚨 PERSON DOWN", "type": "fallen", "threat": True, "duration": 6},
+            {"name": "📡 SIGNAL INTERFERENCE", "type": "blocked", "threat": True, "duration": 5},
+            {"name": "🌙 NIGHT SURVEILLANCE", "type": "night", "threat": False, "duration": 6},
+            {"name": "✅ ALL CLEAR", "type": "clear", "threat": False, "duration": 5},
         ]
         self.test_scenario_index = 0
-        self.scans_per_scenario = 3
+        self.scans_per_scenario = 4
+        self._demo_start_time = time.time()
+        self._scene_start_time = time.time()
+        self._global_frame_count = 0
     
     def initialize(self):
         """Initialize all systems"""
@@ -1182,9 +1187,10 @@ class AegisSentinel:
                 # Update scenario in test mode
                 if self.test_mode and pipeline.scan_count % self.scans_per_scenario == 0:
                     self.test_scenario_index = (self.test_scenario_index + 1) % len(self.test_scenarios)
+                    self._scene_start_time = time.time()  # Reset scene timer for animations
                     scenario = self.test_scenarios[self.test_scenario_index]
                     state.current_scenario = scenario["name"]
-                    log_event("DEMO", f"━━━ Scenario: {scenario['name']} ━━━", "INFO")
+                    log_event("DEMO", f"━━━ {scenario['name']} ━━━", "INFO")
                 
             except Exception as e:
                 log_event("ERROR", f"Analysis error: {e}", "ERROR")
@@ -1192,291 +1198,916 @@ class AegisSentinel:
             await asyncio.sleep(0.1)  # Small delay between analyses
     
     def _generate_test_frame(self) -> np.ndarray:
-        """Generate visually impressive test frame for competition demo"""
+        """
+        CINEMATIC DEMO MODE - Ultra-realistic security footage
+        Designed to blow judges' minds at Parallax AI Lab Competition
+        """
         h, w = 720, 1280
         frame = np.zeros((h, w, 3), dtype=np.uint8)
 
+        self._global_frame_count += 1
         scenario = self.test_scenarios[self.test_scenario_index]
         scenario_type = scenario["type"]
 
-        # Animation frame for dynamic effects
-        anim_frame = int(time.time() * 10) % 100
+        # Time-based animation (smooth 60fps-like movement)
+        t = time.time()
+        scene_time = t - self._scene_start_time
+        anim = int(t * 30) % 1000  # Smooth animation counter
 
-        # Reset vision features for scenario
+        # Initialize vision features
         vision.last_features = {
             "brightness": 120.0, "motion": 5, "edge_density": 0.05, "contrast": 50,
-            "red_percentage": 5, "orange_percentage": 3,
+            "red_percentage": 0, "orange_percentage": 0,
             "yolo_objects": [], "yolo_counts": {}, "yolo_summary": "",
             "people_count": 0, "threat_objects": []
         }
 
-        # ====================================================================
-        # SCENARIO-SPECIFIC VISUALS
-        # ====================================================================
+        # =================================================================
+        # SCENARIO: LOBBY ENTRANCE - Corporate security feel
+        # =================================================================
+        if scenario_type == "lobby":
+            # Modern office lobby with marble floor effect
+            # Gradient wall
+            for y in range(h):
+                shade = int(160 - y * 0.08)
+                frame[y, :] = [shade, shade - 5, shade - 10]
 
-        if scenario_type == "normal":
-            # Living room scene with a person
-            frame[:] = [140, 135, 125]  # Warm indoor lighting
+            # Marble floor with reflection
+            floor_y = 480
+            for y in range(floor_y, h):
+                depth = (y - floor_y) / (h - floor_y)
+                color = int(180 - depth * 60)
+                frame[y, :] = [color, color - 5, color + 5]
+                # Reflection lines
+                if y % 40 == 0:
+                    cv2.line(frame, (0, y), (w, y), (color + 20, color + 15, color + 25), 1)
 
-            # Floor
-            cv2.rectangle(frame, (0, 500), (w, h), (80, 75, 70), -1)
+            # Glass entrance doors
+            door_l, door_r = 400, 880
+            cv2.rectangle(frame, (door_l, 150), (door_r, floor_y), (200, 210, 215), -1)
+            cv2.rectangle(frame, (door_l, 150), (door_r, floor_y), (150, 160, 165), 3)
+            cv2.line(frame, ((door_l + door_r)//2, 150), ((door_l + door_r)//2, floor_y), (120, 130, 135), 2)
 
-            # Wall features (window, furniture)
-            cv2.rectangle(frame, (100, 150), (400, 400), (160, 155, 145), -1)  # Window
-            cv2.rectangle(frame, (110, 160), (390, 390), (200, 220, 240), -1)  # Sky through window
-            cv2.rectangle(frame, (800, 350), (1100, 500), (90, 85, 80), -1)  # Couch
+            # Light reflections on glass
+            for i in range(3):
+                ref_x = door_l + 80 + i * 150
+                cv2.line(frame, (ref_x, 180), (ref_x + 40, floor_y - 50), (220, 225, 230), 2)
 
-            # Person standing
-            person_x = w // 2
+            # Reception desk
+            cv2.rectangle(frame, (50, 400), (300, floor_y), (60, 50, 45), -1)
+            cv2.rectangle(frame, (50, 400), (300, 420), (80, 70, 65), -1)
+
+            # Potted plants
+            for px in [100, 1150]:
+                cv2.rectangle(frame, (px, 420), (px + 40, floor_y), (70, 60, 50), -1)
+                cv2.ellipse(frame, (px + 20, 380), (35, 50), 0, 0, 360, (40, 90, 40), -1)
+
+            # Person walking in (animated)
+            walk_progress = (scene_time % 6) / 6  # 6 second walk cycle
+            person_x = int(door_l + (w//2 - door_l) * walk_progress)
+            person_scale = 0.7 + walk_progress * 0.3
+
+            # Walking animation (leg movement)
+            leg_offset = int(np.sin(scene_time * 8) * 15)
+
+            # Shadow
+            shadow_w = int(50 * person_scale)
+            cv2.ellipse(frame, (person_x, floor_y + 10), (shadow_w, 15), 0, 0, 360, (100, 95, 90), -1)
+
+            # Person body
+            head_y = int(floor_y - 200 * person_scale)
+            body_top = int(floor_y - 170 * person_scale)
+            body_bot = int(floor_y - 50 * person_scale)
+
+            # Legs with walking motion
+            leg_w = int(15 * person_scale)
+            cv2.line(frame, (person_x - 10, body_bot), (person_x - 10 + leg_offset, floor_y), (40, 45, 50), leg_w)
+            cv2.line(frame, (person_x + 10, body_bot), (person_x + 10 - leg_offset, floor_y), (40, 45, 50), leg_w)
+
+            # Body (business attire)
+            body_w = int(35 * person_scale)
+            cv2.ellipse(frame, (person_x, (body_top + body_bot)//2), (body_w, int(60 * person_scale)), 0, 0, 360, (50, 55, 65), -1)
+
             # Head
-            cv2.circle(frame, (person_x, 280), 35, (180, 160, 140), -1)
-            # Body
-            cv2.rectangle(frame, (person_x - 45, 315), (person_x + 45, 480), (80, 100, 150), -1)
-            # Legs
-            cv2.rectangle(frame, (person_x - 35, 480), (person_x - 10, 580), (50, 50, 60), -1)
-            cv2.rectangle(frame, (person_x + 10, 480), (person_x + 35, 580), (50, 50, 60), -1)
+            head_r = int(25 * person_scale)
+            cv2.circle(frame, (person_x, head_y), head_r, (190, 170, 155), -1)
 
-            vision.last_features["yolo_objects"] = ["person"]
-            vision.last_features["yolo_counts"] = {"person": 1}
-            vision.last_features["yolo_summary"] = "1 person(s)"
+            # Briefcase
+            cv2.rectangle(frame, (person_x + int(30 * person_scale), body_bot - 30),
+                         (person_x + int(55 * person_scale), body_bot + 10), (40, 35, 30), -1)
+
+            vision.last_features["yolo_objects"] = ["person", "handbag"]
+            vision.last_features["yolo_counts"] = {"person": 1, "handbag": 1}
+            vision.last_features["yolo_summary"] = "1 person, 1 briefcase - ENTERING"
             vision.last_features["people_count"] = 1
-            vision.last_features["brightness"] = 135.0
+            vision.last_features["motion"] = 15
+            vision.last_features["brightness"] = 155
 
-            # Detection box for demo
-            state.detection_boxes = [{"label": "person", "confidence": 0.94, "box": [person_x - 60, 245, person_x + 60, 585]}]
-
-        elif scenario_type == "weapon":
-            # Threatening scenario - person with knife
-            frame[:] = [100, 95, 90]  # Dimmer, tense atmosphere
-
-            # Add red tint for danger
-            frame[:, :, 2] = np.clip(frame[:, :, 2].astype(np.int16) + 20, 0, 255).astype(np.uint8)
-
-            # Person with weapon
-            person_x = w // 2 + 100
-            # Head
-            cv2.circle(frame, (person_x, 280), 35, (150, 130, 110), -1)
-            # Body (dark clothing)
-            cv2.rectangle(frame, (person_x - 45, 315), (person_x + 45, 480), (30, 30, 35), -1)
-            # Arms (one extended with weapon)
-            cv2.line(frame, (person_x + 45, 350), (person_x + 120, 320), (150, 130, 110), 12)
-            # Knife blade
-            cv2.line(frame, (person_x + 120, 320), (person_x + 180, 280), (200, 200, 210), 6)
-            cv2.line(frame, (person_x + 120, 320), (person_x + 180, 280), (230, 230, 240), 3)
-            # Handle
-            cv2.line(frame, (person_x + 100, 335), (person_x + 120, 320), (60, 40, 30), 8)
-
-            # Pulsing danger effect
-            if anim_frame % 20 < 10:
-                cv2.rectangle(frame, (0, 0), (w, h), (0, 0, 30), 1)
-
-            vision.last_features["yolo_objects"] = ["person", "knife"]
-            vision.last_features["yolo_counts"] = {"person": 1, "knife": 1}
-            vision.last_features["yolo_summary"] = "1 person(s), 1 knife(s)"
-            vision.last_features["threat_objects"] = [{"type": "knife", "confidence": 0.92}]
-            vision.last_features["people_count"] = 1
-
+            box_l = person_x - int(45 * person_scale)
+            box_r = person_x + int(60 * person_scale)
             state.detection_boxes = [
-                {"label": "person", "confidence": 0.91, "box": [person_x - 60, 245, person_x + 60, 490]},
-                {"label": "knife", "confidence": 0.92, "box": [person_x + 95, 270, person_x + 190, 345]}
+                {"label": "person", "confidence": 0.96, "box": [box_l, head_y - head_r, box_r, floor_y]},
+                {"label": "handbag", "confidence": 0.89, "box": [person_x + int(25 * person_scale), body_bot - 35, person_x + int(60 * person_scale), body_bot + 15]}
             ]
 
-        elif scenario_type == "fire":
-            # Fire emergency with animated flames
-            frame[:] = [20, 30, 60]  # Dark with fire glow
+        # =================================================================
+        # SCENARIO: ROUTINE PATROL - Hallway surveillance
+        # =================================================================
+        elif scenario_type == "patrol":
+            # Long corridor perspective
+            vanish_x, vanish_y = w // 2, 200
 
-            # Dynamic flames
-            for i in range(7):
-                flame_x = 100 + i * 170
-                flame_height = 200 + (anim_frame + i * 15) % 80
-
-                # Outer orange glow
-                cv2.ellipse(frame, (flame_x, 550), (80, flame_height), 0, 180, 360, (30, 100, 255), -1)
-                # Inner yellow
-                cv2.ellipse(frame, (flame_x, 580), (50, flame_height - 50), 0, 180, 360, (40, 180, 255), -1)
-                # Core white-yellow
-                cv2.ellipse(frame, (flame_x, 610), (25, flame_height - 100), 0, 180, 360, (100, 220, 255), -1)
-
-            # Smoke at top
-            for i in range(20):
-                smoke_x = 100 + (i * 60 + anim_frame * 2) % w
-                smoke_y = 50 + (i * 20) % 150
-                smoke_size = 30 + i % 20
-                cv2.circle(frame, (smoke_x, smoke_y), smoke_size, (60, 60, 70), -1)
-
-            # Add flickering brightness
-            flicker = 10 + (anim_frame % 10)
-            frame = np.clip(frame.astype(np.int16) + flicker, 0, 255).astype(np.uint8)
-
-            vision.last_features["red_percentage"] = 45
-            vision.last_features["orange_percentage"] = 38
-            vision.last_features["motion"] = 30 + anim_frame % 15
-            vision.last_features["brightness"] = 80.0
-            vision.last_features["yolo_summary"] = "Fire detected"
-
-            state.detection_boxes = [{"label": "fire", "confidence": 0.96, "box": [80, 300, 1200, 700]}]
-
-        elif scenario_type == "blocked":
-            # Camera tampering - nearly black with interference
-            base = 3 + (anim_frame % 5)
-            frame[:] = [base, base, base]
-
-            # Static interference lines
-            for i in range(0, h, 4):
-                if (i + anim_frame) % 8 < 4:
-                    noise_val = 10 + np.random.randint(0, 15)
-                    cv2.line(frame, (0, i), (w, i), (noise_val, noise_val, noise_val), 1)
-
-            # Random static pixels
-            static_mask = np.random.random((h, w)) < 0.02
-            frame[static_mask] = np.random.randint(10, 40, (static_mask.sum(), 3), dtype=np.uint8)
-
-            vision.last_features["brightness"] = 5.0
-            vision.last_features["edge_density"] = 0.001
-            vision.last_features["contrast"] = 3.0
-            vision.last_features["yolo_summary"] = "Camera obstructed"
-
-            state.detection_boxes = []
-
-        elif scenario_type == "fallen":
-            # Medical emergency - person on ground
-            frame[:] = [130, 125, 115]  # Normal indoor
+            # Ceiling
+            pts_ceil = np.array([[0, 0], [w, 0], [vanish_x + 200, vanish_y], [vanish_x - 200, vanish_y]], np.int32)
+            cv2.fillPoly(frame, [pts_ceil], (140, 135, 130))
 
             # Floor
-            cv2.rectangle(frame, (0, 450), (w, h), (100, 95, 85), -1)
+            pts_floor = np.array([[0, h], [w, h], [vanish_x + 200, vanish_y + 300], [vanish_x - 200, vanish_y + 300]], np.int32)
+            cv2.fillPoly(frame, [pts_floor], (100, 95, 90))
 
-            # Person lying horizontally
-            person_y = 520
-            # Body (horizontal)
-            cv2.ellipse(frame, (w//2, person_y), (150, 45), 0, 0, 360, (80, 100, 140), -1)
-            # Head
-            cv2.circle(frame, (w//2 - 180, person_y - 10), 35, (180, 160, 140), -1)
+            # Left wall
+            pts_lwall = np.array([[0, 0], [0, h], [vanish_x - 200, vanish_y + 300], [vanish_x - 200, vanish_y]], np.int32)
+            cv2.fillPoly(frame, [pts_lwall], (170, 165, 160))
+
+            # Right wall
+            pts_rwall = np.array([[w, 0], [w, h], [vanish_x + 200, vanish_y + 300], [vanish_x + 200, vanish_y]], np.int32)
+            cv2.fillPoly(frame, [pts_rwall], (165, 160, 155))
+
+            # Doors on walls (perspective)
+            for i, depth in enumerate([0.3, 0.6, 0.9]):
+                door_h = int(180 * (1 - depth * 0.5))
+                door_w = int(70 * (1 - depth * 0.5))
+                door_y = int(vanish_y + 100 + depth * 200)
+
+                # Left doors
+                door_x_l = int(vanish_x - 200 - (1 - depth) * (vanish_x - 200) * 0.3)
+                cv2.rectangle(frame, (door_x_l - door_w, door_y), (door_x_l, door_y + door_h), (80, 70, 60), -1)
+                cv2.rectangle(frame, (door_x_l - door_w, door_y), (door_x_l, door_y + door_h), (60, 50, 40), 2)
+
+                # Right doors
+                door_x_r = int(vanish_x + 200 + (1 - depth) * (w - vanish_x - 200) * 0.3)
+                cv2.rectangle(frame, (door_x_r, door_y), (door_x_r + door_w, door_y + door_h), (80, 70, 60), -1)
+
+            # Ceiling lights (animated flicker)
+            for i in range(4):
+                light_depth = 0.2 + i * 0.2
+                light_y = int(vanish_y - 50 + light_depth * 50)
+                light_w = int(100 * (1 - light_depth * 0.4))
+                flicker = 1.0 + np.sin(t * 20 + i) * 0.05
+                brightness = int(255 * flicker)
+                cv2.ellipse(frame, (vanish_x, light_y), (light_w, 15), 0, 0, 360, (brightness, brightness, brightness - 20), -1)
+
+            # Security guard walking (patrol)
+            patrol_cycle = (scene_time % 8) / 8
+            guard_x = int(vanish_x - 150 + patrol_cycle * 300)
+            guard_scale = 0.9 - abs(patrol_cycle - 0.5) * 0.3
+            guard_y = int(vanish_y + 280 + (0.5 - abs(patrol_cycle - 0.5)) * 100)
+
+            leg_anim = int(np.sin(scene_time * 6) * 12 * guard_scale)
+
+            # Guard shadow
+            cv2.ellipse(frame, (guard_x, guard_y + int(160 * guard_scale)), (int(40 * guard_scale), 12), 0, 0, 360, (70, 65, 60), -1)
+
+            # Guard body (dark uniform)
+            cv2.ellipse(frame, (guard_x, guard_y + int(80 * guard_scale)), (int(30 * guard_scale), int(55 * guard_scale)), 0, 0, 360, (35, 40, 50), -1)
+
             # Legs
-            cv2.ellipse(frame, (w//2 + 180, person_y + 10), (80, 30), 20, 0, 360, (50, 50, 60), -1)
+            cv2.line(frame, (guard_x - 8, guard_y + int(130 * guard_scale)), (guard_x - 8 + leg_anim, guard_y + int(160 * guard_scale)), (30, 35, 45), int(12 * guard_scale))
+            cv2.line(frame, (guard_x + 8, guard_y + int(130 * guard_scale)), (guard_x + 8 - leg_anim, guard_y + int(160 * guard_scale)), (30, 35, 45), int(12 * guard_scale))
 
-            # Pulsing alert indicator
-            if anim_frame % 30 < 15:
-                cv2.circle(frame, (w//2, person_y - 80), 20 + anim_frame % 10, (0, 200, 255), 3)
+            # Head with cap
+            cv2.circle(frame, (guard_x, guard_y), int(22 * guard_scale), (180, 165, 150), -1)
+            cv2.ellipse(frame, (guard_x, guard_y - int(10 * guard_scale)), (int(25 * guard_scale), int(12 * guard_scale)), 0, 180, 360, (30, 35, 45), -1)
+
+            # Flashlight beam
+            if patrol_cycle > 0.3 and patrol_cycle < 0.7:
+                beam_end_x = guard_x + int(150 * guard_scale)
+                beam_end_y = guard_y + int(200 * guard_scale)
+                pts_beam = np.array([
+                    [guard_x + int(25 * guard_scale), guard_y + int(70 * guard_scale)],
+                    [beam_end_x - 30, beam_end_y],
+                    [beam_end_x + 30, beam_end_y]
+                ], np.int32)
+                overlay = frame.copy()
+                cv2.fillPoly(overlay, [pts_beam], (200, 200, 180))
+                cv2.addWeighted(overlay, 0.3, frame, 0.7, 0, frame)
 
             vision.last_features["yolo_objects"] = ["person"]
             vision.last_features["yolo_counts"] = {"person": 1}
-            vision.last_features["yolo_summary"] = "1 person(s) - FALLEN"
-            vision.last_features["motion"] = 0.5  # Very still
+            vision.last_features["yolo_summary"] = "Security patrol - ROUTINE CHECK"
             vision.last_features["people_count"] = 1
+            vision.last_features["motion"] = 12
 
-            state.detection_boxes = [{"label": "person (FALLEN)", "confidence": 0.88, "box": [w//2 - 230, person_y - 60, w//2 + 270, person_y + 70]}]
+            state.detection_boxes = [
+                {"label": "person", "confidence": 0.94, "box": [guard_x - int(35 * guard_scale), guard_y - int(25 * guard_scale), guard_x + int(35 * guard_scale), guard_y + int(165 * guard_scale)]}
+            ]
 
-        elif scenario_type == "dark":
-            # Night vision / low light
-            frame[:] = [35, 40, 45]  # Dark blue tint
+        # =================================================================
+        # SCENARIO: MOTION DETECTED - Perimeter alert
+        # =================================================================
+        elif scenario_type == "motion":
+            # Outdoor parking lot at dusk
+            # Sky gradient (dusk)
+            for y in range(h // 2):
+                ratio = y / (h // 2)
+                r = int(80 + ratio * 40)
+                g = int(60 + ratio * 50)
+                b = int(120 - ratio * 30)
+                frame[y, :] = [b, g, r]
 
-            # Moonlight from window
-            cv2.ellipse(frame, (200, 150), (100, 80), 0, 0, 360, (60, 65, 75), -1)
+            # Ground (asphalt)
+            frame[h//2:, :] = [50, 50, 55]
 
-            # Furniture silhouettes
-            cv2.rectangle(frame, (700, 400), (1100, 550), (25, 28, 32), -1)
-            cv2.rectangle(frame, (100, 350), (250, 500), (30, 33, 38), -1)
+            # Parking lines
+            for i in range(6):
+                line_x = 150 + i * 180
+                cv2.line(frame, (line_x, h//2 + 50), (line_x, h - 50), (80, 80, 85), 3)
 
-            # Night vision grain effect
-            grain = np.random.randint(-5, 5, frame.shape, dtype=np.int16)
-            frame = np.clip(frame.astype(np.int16) + grain, 0, 255).astype(np.uint8)
+            # Parked cars (static)
+            car_positions = [(200, 520), (560, 510), (920, 525)]
+            car_colors = [(40, 45, 120), (60, 60, 65), (30, 80, 30)]
+            for (cx, cy), color in zip(car_positions, car_colors):
+                # Car body
+                cv2.rectangle(frame, (cx - 70, cy - 40), (cx + 70, cy + 30), color, -1)
+                cv2.rectangle(frame, (cx - 50, cy - 70), (cx + 50, cy - 35), color, -1)
+                # Windows
+                cv2.rectangle(frame, (cx - 45, cy - 65), (cx + 45, cy - 40), (80, 90, 100), -1)
+                # Wheels
+                cv2.circle(frame, (cx - 45, cy + 30), 18, (25, 25, 25), -1)
+                cv2.circle(frame, (cx + 45, cy + 30), 18, (25, 25, 25), -1)
 
-            vision.last_features["brightness"] = 40.0
-            vision.last_features["yolo_summary"] = "Low light - enhanced mode"
+            # Moving figure (detected motion)
+            figure_x = int(1000 + np.sin(scene_time * 2) * 100)
+            figure_y = 480
 
-            state.detection_boxes = []
+            # Motion blur effect
+            for blur in range(3):
+                blur_x = figure_x - blur * 15
+                alpha = 0.3 - blur * 0.1
+                cv2.ellipse(frame, (blur_x, figure_y + 50), (25, 70), 0, 0, 360, (int(80*alpha), int(80*alpha), int(90*alpha)), -1)
 
-        elif scenario_type == "multiple":
-            # Multiple people - busy scene
-            frame[:] = [145, 140, 130]  # Well-lit
+            # Figure
+            cv2.ellipse(frame, (figure_x, figure_y + 50), (25, 70), 0, 0, 360, (60, 65, 75), -1)
+            cv2.circle(frame, (figure_x, figure_y - 30), 22, (170, 155, 140), -1)
 
-            # Floor
-            cv2.rectangle(frame, (0, 520), (w, h), (90, 85, 75), -1)
+            # Motion detection zone overlay
+            zone_pts = np.array([[850, 380], [1200, 380], [1250, 650], [800, 650]], np.int32)
+            overlay = frame.copy()
+            cv2.polylines(overlay, [zone_pts], True, (0, 255, 255), 3)
+            cv2.fillPoly(overlay, [zone_pts], (0, 50, 50))
+            cv2.addWeighted(overlay, 0.3, frame, 0.7, 0, frame)
 
-            # Person 1 (left)
-            p1_x = w // 4
-            cv2.circle(frame, (p1_x, 300), 32, (175, 155, 135), -1)
-            cv2.rectangle(frame, (p1_x - 40, 332), (p1_x + 40, 490), (100, 70, 130), -1)
-            cv2.rectangle(frame, (p1_x - 30, 490), (p1_x - 8, 580), (45, 45, 55), -1)
-            cv2.rectangle(frame, (p1_x + 8, 490), (p1_x + 30, 580), (45, 45, 55), -1)
+            # Pulsing motion indicator
+            pulse = int(abs(np.sin(t * 4)) * 20)
+            cv2.circle(frame, (figure_x, figure_y - 80), 30 + pulse, (0, 200, 255), 3)
 
-            # Person 2 (right)
-            p2_x = 3 * w // 4
-            cv2.circle(frame, (p2_x, 290), 30, (165, 145, 125), -1)
-            cv2.rectangle(frame, (p2_x - 38, 320), (p2_x + 38, 470), (60, 90, 140), -1)
-            cv2.rectangle(frame, (p2_x - 28, 470), (p2_x - 8, 560), (40, 40, 50), -1)
-            cv2.rectangle(frame, (p2_x + 8, 470), (p2_x + 28, 560), (40, 40, 50), -1)
+            # Street lamp
+            cv2.rectangle(frame, (100, 200), (110, h//2 + 100), (60, 60, 65), -1)
+            lamp_glow = int(200 + np.sin(t * 10) * 20)
+            cv2.circle(frame, (105, 210), 25, (lamp_glow, lamp_glow, lamp_glow - 40), -1)
 
-            # Cell phone in hand of person 2
-            cv2.rectangle(frame, (p2_x + 50, 380), (p2_x + 75, 430), (20, 20, 25), -1)
-            cv2.rectangle(frame, (p2_x + 53, 385), (p2_x + 72, 425), (100, 150, 200), -1)  # Screen
+            vision.last_features["yolo_objects"] = ["person", "car", "car", "car"]
+            vision.last_features["yolo_counts"] = {"person": 1, "car": 3}
+            vision.last_features["yolo_summary"] = "MOTION IN ZONE B - 1 person, 3 vehicles"
+            vision.last_features["people_count"] = 1
+            vision.last_features["motion"] = 35
 
-            vision.last_features["yolo_objects"] = ["person", "person", "cell phone"]
-            vision.last_features["yolo_counts"] = {"person": 2, "cell phone": 1}
-            vision.last_features["yolo_summary"] = "2 person(s), 1 cell phone(s)"
-            vision.last_features["people_count"] = 2
+            state.detection_boxes = [
+                {"label": "person", "confidence": 0.88, "box": [figure_x - 35, figure_y - 55, figure_x + 35, figure_y + 120]},
+                {"label": "car", "confidence": 0.95, "box": [130, 450, 270, 550]},
+                {"label": "car", "confidence": 0.93, "box": [490, 440, 630, 540]},
+                {"label": "car", "confidence": 0.91, "box": [850, 455, 990, 555]}
+            ]
+
+        # =================================================================
+        # SCENARIO: INTRUDER ALERT - Unauthorized access
+        # =================================================================
+        elif scenario_type == "intruder":
+            # Server room / restricted area
+            # Dark tech environment
+            frame[:] = [25, 28, 35]
+
+            # Server racks with blinking lights
+            for rack_x in [100, 300, 500, 700, 900, 1100]:
+                # Rack body
+                cv2.rectangle(frame, (rack_x, 150), (rack_x + 120, 600), (40, 42, 48), -1)
+                cv2.rectangle(frame, (rack_x, 150), (rack_x + 120, 600), (60, 62, 68), 2)
+
+                # Server units
+                for unit_y in range(180, 580, 50):
+                    cv2.rectangle(frame, (rack_x + 10, unit_y), (rack_x + 110, unit_y + 40), (30, 32, 38), -1)
+
+                    # Blinking LEDs
+                    for led_i in range(4):
+                        led_x = rack_x + 20 + led_i * 25
+                        # Random blinking pattern based on time and position
+                        is_on = np.sin(t * 5 + rack_x * 0.01 + unit_y * 0.02 + led_i) > 0
+                        led_color = (0, 255, 0) if is_on else (0, 80, 0)
+                        if led_i == 0 and is_on:
+                            led_color = (0, 200, 255)  # Some amber
+                        cv2.circle(frame, (led_x, unit_y + 20), 4, led_color, -1)
+
+            # Floor with cable channels
+            cv2.rectangle(frame, (0, 600), (w, h), (35, 38, 45), -1)
+            for cx in range(0, w, 200):
+                cv2.rectangle(frame, (cx, 620), (cx + 150, 640), (45, 48, 55), -1)
+
+            # INTRUDER - hooded figure
+            intruder_x = int(640 + np.sin(scene_time * 1.5) * 50)
+            intruder_y = 400
+
+            # Crouching pose
+            # Body (dark hoodie)
+            cv2.ellipse(frame, (intruder_x, intruder_y + 80), (45, 70), 0, 0, 360, (20, 20, 25), -1)
+
+            # Hood
+            cv2.ellipse(frame, (intruder_x, intruder_y), (35, 40), 0, 0, 360, (15, 15, 20), -1)
+
+            # Face shadow (barely visible)
+            cv2.ellipse(frame, (intruder_x, intruder_y + 5), (20, 25), 0, 0, 180, (40, 35, 30), -1)
+
+            # Laptop glow on face
+            cv2.ellipse(frame, (intruder_x - 5, intruder_y + 10), (15, 10), 0, 0, 180, (100, 120, 140), -1)
+
+            # Laptop
+            cv2.rectangle(frame, (intruder_x - 40, intruder_y + 100), (intruder_x + 40, intruder_y + 130), (50, 55, 60), -1)
+            cv2.rectangle(frame, (intruder_x - 35, intruder_y + 60), (intruder_x + 35, intruder_y + 100), (80, 150, 200), -1)
+
+            # Backpack
+            cv2.ellipse(frame, (intruder_x + 50, intruder_y + 60), (25, 40), 20, 0, 360, (25, 25, 30), -1)
+
+            # RED ALERT overlay
+            alert_intensity = int(abs(np.sin(t * 6)) * 30)
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (0, 0), (w, h), (0, 0, alert_intensity + 20), -1)
+            cv2.addWeighted(overlay, 0.15, frame, 0.85, 0, frame)
+
+            # Flashing border
+            if int(t * 4) % 2 == 0:
+                cv2.rectangle(frame, (5, 5), (w - 5, h - 5), (0, 0, 255), 4)
+
+            vision.last_features["yolo_objects"] = ["person", "laptop", "backpack"]
+            vision.last_features["yolo_counts"] = {"person": 1, "laptop": 1, "backpack": 1}
+            vision.last_features["yolo_summary"] = "⚠️ UNAUTHORIZED ACCESS - Server Room B"
+            vision.last_features["people_count"] = 1
+            vision.last_features["threat_objects"] = [{"type": "intruder", "confidence": 0.94}]
             vision.last_features["motion"] = 8
 
             state.detection_boxes = [
-                {"label": "person", "confidence": 0.93, "box": [p1_x - 55, 268, p1_x + 55, 585]},
-                {"label": "person", "confidence": 0.91, "box": [p2_x - 50, 260, p2_x + 50, 565]},
-                {"label": "cell phone", "confidence": 0.87, "box": [p2_x + 45, 375, p2_x + 80, 435]}
+                {"label": "INTRUDER", "confidence": 0.94, "box": [intruder_x - 60, intruder_y - 45, intruder_x + 70, intruder_y + 180]},
+                {"label": "laptop", "confidence": 0.91, "box": [intruder_x - 45, intruder_y + 55, intruder_x + 45, intruder_y + 135]},
+                {"label": "backpack", "confidence": 0.87, "box": [intruder_x + 20, intruder_y + 15, intruder_x + 80, intruder_y + 105]}
             ]
 
-        else:  # empty / all clear
-            # Clean, well-lit empty room
-            frame[:] = [150, 145, 135]
+        # =================================================================
+        # SCENARIO: WEAPON DETECTED - Maximum threat
+        # =================================================================
+        elif scenario_type == "weapon":
+            # Convenience store / retail environment
+            # Store interior
+            frame[:] = [160, 155, 145]
 
-            # Floor
-            cv2.rectangle(frame, (0, 500), (w, h), (100, 95, 85), -1)
+            # Checkered floor
+            tile_size = 60
+            for ty in range(h // 2, h, tile_size):
+                for tx in range(0, w, tile_size):
+                    if ((tx // tile_size) + (ty // tile_size)) % 2 == 0:
+                        cv2.rectangle(frame, (tx, ty), (tx + tile_size, ty + tile_size), (140, 135, 125), -1)
 
-            # Window
-            cv2.rectangle(frame, (200, 100), (500, 350), (170, 165, 155), -1)
-            cv2.rectangle(frame, (210, 110), (490, 340), (180, 210, 240), -1)  # Sky
+            # Shelves
+            for shelf_x in [100, 400, 700, 1000]:
+                cv2.rectangle(frame, (shelf_x, 200), (shelf_x + 180, 450), (120, 100, 80), -1)
+                for shelf_y in [230, 300, 370]:
+                    cv2.rectangle(frame, (shelf_x, shelf_y), (shelf_x + 180, shelf_y + 10), (100, 80, 60), -1)
+                    # Products
+                    for prod in range(5):
+                        px = shelf_x + 15 + prod * 35
+                        cv2.rectangle(frame, (px, shelf_y - 50), (px + 25, shelf_y),
+                                     (np.random.randint(100, 200), np.random.randint(50, 150), np.random.randint(50, 150)), -1)
 
-            # Furniture
-            cv2.rectangle(frame, (700, 380), (1150, 500), (85, 80, 70), -1)  # Couch
-            cv2.rectangle(frame, (100, 400), (300, 500), (90, 85, 75), -1)  # Table
+            # Counter
+            cv2.rectangle(frame, (0, 400), (250, 550), (80, 70, 60), -1)
+            cv2.rectangle(frame, (0, 400), (250, 420), (100, 90, 80), -1)
 
-            vision.last_features["brightness"] = 145.0
-            vision.last_features["yolo_summary"] = "No activity"
-            vision.last_features["motion"] = 1
+            # Cash register
+            cv2.rectangle(frame, (50, 350), (150, 400), (40, 40, 45), -1)
+            cv2.rectangle(frame, (60, 320), (140, 350), (60, 60, 65), -1)
+
+            # ARMED SUSPECT
+            suspect_x = 600
+            suspect_y = 380
+
+            # Body (dark jacket)
+            cv2.ellipse(frame, (suspect_x, suspect_y + 60), (40, 65), 0, 0, 360, (30, 30, 35), -1)
+
+            # Head with ski mask
+            cv2.circle(frame, (suspect_x, suspect_y - 20), 30, (20, 20, 25), -1)
+            # Eye holes
+            cv2.ellipse(frame, (suspect_x - 10, suspect_y - 25), (8, 5), 0, 0, 360, (60, 50, 45), -1)
+            cv2.ellipse(frame, (suspect_x + 10, suspect_y - 25), (8, 5), 0, 0, 360, (60, 50, 45), -1)
+
+            # Extended arm with weapon
+            arm_angle = np.sin(t * 3) * 0.1 - 0.3
+            arm_end_x = suspect_x - 120
+            arm_end_y = suspect_y + int(np.sin(arm_angle) * 30)
+            cv2.line(frame, (suspect_x - 35, suspect_y + 30), (arm_end_x + 40, arm_end_y), (30, 30, 35), 18)
+
+            # KNIFE - detailed
+            knife_x = arm_end_x
+            knife_y = arm_end_y
+            # Handle
+            cv2.rectangle(frame, (knife_x + 20, knife_y - 8), (knife_x + 55, knife_y + 8), (60, 40, 20), -1)
+            # Blade
+            pts_blade = np.array([
+                [knife_x + 20, knife_y - 5],
+                [knife_x - 50, knife_y],
+                [knife_x + 20, knife_y + 5]
+            ], np.int32)
+            cv2.fillPoly(frame, [pts_blade], (200, 200, 210))
+            # Blade shine
+            cv2.line(frame, (knife_x + 15, knife_y - 3), (knife_x - 40, knife_y), (230, 230, 240), 2)
+
+            # Victim/cashier cowering
+            cv2.ellipse(frame, (150, 480), (30, 50), 0, 0, 360, (140, 100, 90), -1)
+            cv2.circle(frame, (150, 420), 22, (190, 170, 155), -1)
+            # Hands up
+            cv2.line(frame, (130, 450), (110, 380), (190, 170, 155), 10)
+            cv2.line(frame, (170, 450), (190, 380), (190, 170, 155), 10)
+
+            # CRITICAL ALERT effects
+            alert_pulse = abs(np.sin(t * 8))
+
+            # Red vignette
+            for i in range(50):
+                alpha = (50 - i) / 50 * 0.4 * alert_pulse
+                cv2.rectangle(frame, (i, i), (w - i, h - i), (0, 0, int(200 * alpha)), 1)
+
+            # Flashing "THREAT" corners
+            if int(t * 5) % 2 == 0:
+                cv2.rectangle(frame, (0, 0), (200, 80), (0, 0, 180), -1)
+                cv2.putText(frame, "THREAT", (20, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+                cv2.rectangle(frame, (w - 200, 0), (w, 80), (0, 0, 180), -1)
+                cv2.putText(frame, "THREAT", (w - 180, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+
+            vision.last_features["yolo_objects"] = ["person", "person", "knife"]
+            vision.last_features["yolo_counts"] = {"person": 2, "knife": 1}
+            vision.last_features["yolo_summary"] = "🔪 WEAPON DETECTED - ARMED ROBBERY IN PROGRESS"
+            vision.last_features["people_count"] = 2
+            vision.last_features["threat_objects"] = [{"type": "knife", "confidence": 0.96}]
+            vision.last_features["motion"] = 25
+
+            state.detection_boxes = [
+                {"label": "ARMED SUSPECT", "confidence": 0.95, "box": [suspect_x - 55, suspect_y - 55, suspect_x + 55, suspect_y + 130]},
+                {"label": "knife", "confidence": 0.96, "box": [knife_x - 55, knife_y - 15, knife_x + 60, knife_y + 15]},
+                {"label": "person", "confidence": 0.89, "box": [115, 395, 195, 535]}
+            ]
+
+        # =================================================================
+        # SCENARIO: FIRE EMERGENCY
+        # =================================================================
+        elif scenario_type == "fire":
+            # Kitchen/industrial setting
+            frame[:] = [40, 35, 30]
+
+            # Room structure
+            cv2.rectangle(frame, (0, 500), (w, h), (60, 55, 50), -1)  # Floor
+
+            # Kitchen counter
+            cv2.rectangle(frame, (200, 350), (800, 500), (70, 65, 60), -1)
+            cv2.rectangle(frame, (200, 350), (800, 370), (90, 85, 80), -1)
+
+            # Stove
+            cv2.rectangle(frame, (400, 370), (600, 450), (50, 50, 55), -1)
+
+            # FIRE - Dynamic realistic flames
+            fire_base_y = 300
+            num_flames = 12
+
+            for i in range(num_flames):
+                fx = 350 + i * 25 + np.random.randint(-10, 10)
+
+                # Flame height varies with time
+                flame_h = 150 + int(np.sin(t * 15 + i * 0.5) * 40) + np.random.randint(-20, 20)
+                flame_w = 30 + int(np.sin(t * 12 + i) * 10)
+
+                # Outer flame (orange-red)
+                pts = np.array([
+                    [fx - flame_w, fire_base_y + 100],
+                    [fx - flame_w//2, fire_base_y + 50],
+                    [fx + int(np.sin(t * 20 + i) * 15), fire_base_y - flame_h],
+                    [fx + flame_w//2, fire_base_y + 50],
+                    [fx + flame_w, fire_base_y + 100]
+                ], np.int32)
+                cv2.fillPoly(frame, [pts], (20, 80, 255))
+
+                # Middle flame (orange-yellow)
+                flame_h2 = flame_h * 0.7
+                flame_w2 = flame_w * 0.6
+                pts2 = np.array([
+                    [fx - int(flame_w2), fire_base_y + 80],
+                    [fx + int(np.sin(t * 25 + i) * 10), fire_base_y - int(flame_h2)],
+                    [fx + int(flame_w2), fire_base_y + 80]
+                ], np.int32)
+                cv2.fillPoly(frame, [pts2], (40, 180, 255))
+
+                # Inner flame (yellow-white)
+                flame_h3 = flame_h * 0.4
+                pts3 = np.array([
+                    [fx - 10, fire_base_y + 60],
+                    [fx + int(np.sin(t * 30 + i) * 5), fire_base_y - int(flame_h3)],
+                    [fx + 10, fire_base_y + 60]
+                ], np.int32)
+                cv2.fillPoly(frame, [pts3], (150, 240, 255))
+
+            # Smoke
+            for s in range(25):
+                smoke_x = 300 + (s * 40 + int(t * 50)) % 500
+                smoke_y = 50 + (s * 30) % 200 + int(np.sin(t * 3 + s) * 20)
+                smoke_r = 40 + s % 30
+                smoke_alpha = 80 - s * 2
+                cv2.circle(frame, (smoke_x, smoke_y), smoke_r, (smoke_alpha, smoke_alpha, smoke_alpha + 10), -1)
+
+            # Fire glow effect on whole scene
+            glow_intensity = 0.2 + abs(np.sin(t * 10)) * 0.15
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (0, 0), (w, h), (30, 100, 255), -1)
+            cv2.addWeighted(overlay, glow_intensity, frame, 1 - glow_intensity, 0, frame)
+
+            # Sprinkler (if detected, shows water)
+            if scene_time > 3:
+                for drop in range(30):
+                    drop_x = 500 + np.random.randint(-200, 200)
+                    drop_y = 100 + int((scene_time - 3) * 100 + drop * 20) % 400
+                    cv2.line(frame, (drop_x, drop_y), (drop_x - 2, drop_y + 15), (200, 180, 150), 2)
+
+            vision.last_features["yolo_objects"] = ["fire", "smoke"]
+            vision.last_features["yolo_counts"] = {"fire": 1}
+            vision.last_features["yolo_summary"] = "🔥 FIRE EMERGENCY - Kitchen Area"
+            vision.last_features["red_percentage"] = 45
+            vision.last_features["orange_percentage"] = 35
+            vision.last_features["motion"] = 40
+            vision.last_features["threat_objects"] = [{"type": "fire", "confidence": 0.98}]
+
+            state.detection_boxes = [
+                {"label": "FIRE", "confidence": 0.98, "box": [300, 100, 700, 450]}
+            ]
+
+        # =================================================================
+        # SCENARIO: PERSON DOWN - Medical emergency
+        # =================================================================
+        elif scenario_type == "fallen":
+            # Office environment
+            frame[:] = [165, 160, 155]
+
+            # Carpet floor
+            cv2.rectangle(frame, (0, 450), (w, h), (120, 100, 90), -1)
+            # Carpet texture
+            for i in range(0, w, 30):
+                cv2.line(frame, (i, 450), (i, h), (115, 95, 85), 1)
+
+            # Office desk
+            cv2.rectangle(frame, (800, 300), (1150, 450), (100, 80, 60), -1)
+            cv2.rectangle(frame, (800, 300), (1150, 320), (120, 100, 80), -1)
+
+            # Computer monitor
+            cv2.rectangle(frame, (900, 200), (1050, 300), (40, 40, 45), -1)
+            cv2.rectangle(frame, (910, 210), (1040, 290), (100, 140, 180), -1)
+            cv2.rectangle(frame, (960, 300), (990, 340), (50, 50, 55), -1)
+
+            # Chair (knocked over)
+            cv2.ellipse(frame, (750, 500), (50, 25), 30, 0, 360, (50, 50, 55), -1)
+            cv2.line(frame, (720, 480), (680, 400), (60, 60, 65), 8)
+
+            # FALLEN PERSON
+            person_x = 500
+            person_y = 550
+
+            # Body lying on side
+            cv2.ellipse(frame, (person_x, person_y), (120, 45), 10, 0, 360, (60, 80, 120), -1)
+
+            # Head
+            cv2.circle(frame, (person_x - 140, person_y - 20), 35, (190, 170, 155), -1)
+
+            # Hair
+            cv2.ellipse(frame, (person_x - 145, person_y - 35), (30, 20), 0, 0, 180, (60, 50, 40), -1)
+
+            # Arm extended
+            cv2.line(frame, (person_x - 80, person_y - 20), (person_x - 180, person_y + 40), (190, 170, 155), 18)
+
+            # Legs
+            cv2.ellipse(frame, (person_x + 130, person_y + 20), (70, 25), -20, 0, 360, (50, 55, 70), -1)
+
+            # Scattered papers
+            for p in range(5):
+                px = person_x + 50 + p * 40 + np.random.randint(-20, 20)
+                py = person_y - 80 + np.random.randint(-30, 30)
+                angle = np.random.randint(-30, 30)
+                pts = np.array([
+                    [px - 20, py - 15],
+                    [px + 20, py - 15],
+                    [px + 20, py + 15],
+                    [px - 20, py + 15]
+                ], np.int32)
+                # Rotate
+                M = cv2.getRotationMatrix2D((px, py), angle, 1)
+                pts_rot = cv2.transform(pts.reshape(1, -1, 2), M).reshape(-1, 2).astype(np.int32)
+                cv2.fillPoly(frame, [pts_rot], (240, 240, 235))
+
+            # Emergency pulse indicator
+            pulse_r = 50 + int(abs(np.sin(t * 5)) * 30)
+            cv2.circle(frame, (person_x - 140, person_y - 20), pulse_r, (0, 180, 255), 3)
+            cv2.circle(frame, (person_x - 140, person_y - 20), pulse_r + 20, (0, 120, 200), 2)
+
+            # "MEDICAL EMERGENCY" watermark
+            if int(t * 3) % 2 == 0:
+                cv2.putText(frame, "MEDICAL EMERGENCY", (350, 150), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 100, 255), 3)
+
+            vision.last_features["yolo_objects"] = ["person"]
+            vision.last_features["yolo_counts"] = {"person": 1}
+            vision.last_features["yolo_summary"] = "🚨 PERSON DOWN - Medical emergency"
+            vision.last_features["people_count"] = 1
+            vision.last_features["motion"] = 0.5
+            vision.last_features["threat_objects"] = [{"type": "fallen_person", "confidence": 0.92}]
+
+            state.detection_boxes = [
+                {"label": "PERSON DOWN", "confidence": 0.92, "box": [person_x - 190, person_y - 70, person_x + 210, person_y + 80]}
+            ]
+
+        # =================================================================
+        # SCENARIO: SIGNAL INTERFERENCE - Camera tampering
+        # =================================================================
+        elif scenario_type == "blocked":
+            # Glitch/interference effect
+            base_frame = np.random.randint(5, 20, (h, w, 3), dtype=np.uint8)
+
+            # Horizontal glitch bands
+            for i in range(10):
+                band_y = np.random.randint(0, h - 50)
+                band_h = np.random.randint(10, 80)
+                offset = np.random.randint(-100, 100)
+
+                # Shift the band horizontally
+                if band_y + band_h < h:
+                    band = base_frame[band_y:band_y + band_h, :, :].copy()
+                    if offset > 0:
+                        base_frame[band_y:band_y + band_h, offset:, :] = band[:, :-offset, :]
+                        base_frame[band_y:band_y + band_h, :offset, :] = band[:, -offset:, :]
+                    elif offset < 0:
+                        base_frame[band_y:band_y + band_h, :offset, :] = band[:, -offset:, :]
+                        base_frame[band_y:band_y + band_h, offset:, :] = band[:, :-offset, :]
+
+            frame = base_frame
+
+            # Color channel separation (RGB glitch)
+            if int(t * 8) % 3 == 0:
+                shift = np.random.randint(5, 20)
+                frame[:, shift:, 2] = frame[:, :-shift, 2]  # Red channel shift
+                frame[:, :-shift, 0] = frame[:, shift:, 0]  # Blue channel shift
+
+            # Scanlines
+            for y in range(0, h, 2):
+                if np.random.random() > 0.3:
+                    frame[y, :] = frame[y, :] // 2
+
+            # Static noise bursts
+            if int(t * 10) % 4 == 0:
+                noise_region = np.random.randint(0, 255, (h, w, 3), dtype=np.uint8)
+                mask = np.random.random((h, w)) < 0.3
+                frame[mask] = noise_region[mask]
+
+            # "NO SIGNAL" text with glitch
+            text_y = 360 + int(np.sin(t * 20) * 5)
+            text_x = 450 + int(np.sin(t * 15) * 10)
+
+            # Glitched text (multiple offset copies)
+            cv2.putText(frame, "NO SIGNAL", (text_x - 3, text_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 3)
+            cv2.putText(frame, "NO SIGNAL", (text_x + 3, text_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 255), 3)
+            cv2.putText(frame, "NO SIGNAL", (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 3)
+
+            # Camera ID flicker
+            cv2.putText(frame, f"CAM-07 | SIGNAL LOST", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 150), 2)
+
+            # Interference bars
+            for i in range(5):
+                bar_y = (int(t * 200) + i * 150) % h
+                cv2.rectangle(frame, (0, bar_y), (w, bar_y + 3), (200, 200, 200), -1)
+
+            vision.last_features["brightness"] = 8
+            vision.last_features["edge_density"] = 0.002
+            vision.last_features["contrast"] = 5
+            vision.last_features["yolo_summary"] = "📡 CAMERA TAMPERING DETECTED"
+            vision.last_features["threat_objects"] = [{"type": "camera_blocked", "confidence": 0.95}]
 
             state.detection_boxes = []
 
-        # ====================================================================
-        # ADD COMMON OVERLAYS
-        # ====================================================================
+        # =================================================================
+        # SCENARIO: NIGHT SURVEILLANCE - IR/Night vision
+        # =================================================================
+        elif scenario_type == "night":
+            # Night vision green effect
+            frame[:] = [15, 25, 10]
 
-        # Subtle noise for realism
-        noise = np.random.randint(-8, 8, frame.shape, dtype=np.int16)
-        frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+            # Outdoor scene - yard/perimeter
+            # Ground
+            for y in range(h // 2, h):
+                intensity = int(30 + (y - h//2) * 0.1)
+                frame[y, :] = [intensity - 10, intensity, intensity - 15]
 
-        # Scanline effect (subtle)
-        for y in range(0, h, 3):
-            frame[y, :] = np.clip(frame[y, :].astype(np.int16) - 5, 0, 255).astype(np.uint8)
+            # Fence
+            for post_x in range(100, w, 150):
+                cv2.rectangle(frame, (post_x, 250), (post_x + 10, h // 2 + 50), (40, 50, 35), -1)
+            for rail_y in [280, 350]:
+                cv2.line(frame, (100, rail_y), (w - 100, rail_y), (35, 45, 30), 3)
 
-        # Top banner
-        cv2.rectangle(frame, (0, 0), (w, 50), (15, 15, 20), -1)
+            # Trees silhouettes
+            for tree_x in [150, 500, 900, 1100]:
+                tree_h = np.random.randint(200, 300)
+                # Trunk
+                cv2.rectangle(frame, (tree_x - 10, h//2 - tree_h//3), (tree_x + 10, h//2), (25, 35, 20), -1)
+                # Foliage
+                cv2.ellipse(frame, (tree_x, h//2 - tree_h//2), (60, tree_h//2), 0, 0, 360, (20, 35, 15), -1)
 
-        # Scenario name with color coding
-        scenario_color = (0, 255, 100) if not scenario['threat'] else (0, 80, 255)
-        cv2.putText(frame, f"DEMO: {scenario['name']}", (20, 35),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.9, scenario_color, 2)
+            # IR illumination hotspot
+            cv2.circle(frame, (w//2, h//2), 300, (25, 45, 20), -1)
 
-        # AEGIS branding
-        cv2.putText(frame, "AEGIS SENTINEL", (w - 220, 35),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 200, 100), 2)
+            # Animal detection (cat/raccoon)
+            animal_x = int(700 + np.sin(t * 2) * 100)
+            animal_y = 520
+
+            # Body
+            cv2.ellipse(frame, (animal_x, animal_y), (40, 25), 0, 0, 360, (60, 80, 50), -1)
+            # Head
+            cv2.circle(frame, (animal_x - 45, animal_y - 10), 18, (65, 85, 55), -1)
+            # Ears
+            cv2.ellipse(frame, (animal_x - 55, animal_y - 25), (8, 12), -20, 0, 360, (60, 80, 50), -1)
+            cv2.ellipse(frame, (animal_x - 35, animal_y - 25), (8, 12), 20, 0, 360, (60, 80, 50), -1)
+            # Glowing eyes (IR reflection)
+            cv2.circle(frame, (animal_x - 50, animal_y - 12), 5, (150, 255, 120), -1)
+            cv2.circle(frame, (animal_x - 40, animal_y - 12), 5, (150, 255, 120), -1)
+            # Tail
+            cv2.ellipse(frame, (animal_x + 50, animal_y - 15), (35, 10), 30, 0, 360, (55, 75, 45), -1)
+
+            # IR noise grain
+            noise = np.random.randint(-10, 10, frame.shape, dtype=np.int16)
+            frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+
+            # Night vision vignette
+            for r in range(50):
+                alpha = r / 50 * 0.7
+                cv2.rectangle(frame, (r * 2, r * 2), (w - r * 2, h - r * 2), (0, 0, 0), 1)
+
+            # "NIGHT VISION" indicator
+            cv2.rectangle(frame, (w - 200, 10), (w - 10, 50), (20, 40, 15), -1)
+            cv2.putText(frame, "NV MODE", (w - 190, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 200, 80), 2)
+
+            vision.last_features["yolo_objects"] = ["cat"]
+            vision.last_features["yolo_counts"] = {"cat": 1}
+            vision.last_features["yolo_summary"] = "Night patrol - Animal detected (non-threat)"
+            vision.last_features["brightness"] = 25
+            vision.last_features["motion"] = 8
+
+            state.detection_boxes = [
+                {"label": "cat", "confidence": 0.82, "box": [animal_x - 70, animal_y - 40, animal_x + 60, animal_y + 30]}
+            ]
+
+        # =================================================================
+        # SCENARIO: ALL CLEAR - System working perfectly
+        # =================================================================
+        elif scenario_type == "clear":
+            # Clean, modern lobby - everything normal
+            # Gradient background
+            for y in range(h):
+                shade = int(175 - y * 0.05)
+                frame[y, :] = [shade - 5, shade, shade + 5]
+
+            # Polished floor
+            for y in range(h * 2 // 3, h):
+                shade = int(200 - (y - h * 2 // 3) * 0.3)
+                frame[y, :] = [shade - 10, shade - 5, shade]
+                # Reflections
+                if y % 30 == 0:
+                    cv2.line(frame, (0, y), (w, y), (shade + 10, shade + 5, shade + 10), 1)
+
+            # Reception area
+            cv2.rectangle(frame, (w//2 - 200, h//2 + 50), (w//2 + 200, h * 2 // 3), (80, 75, 70), -1)
+            cv2.rectangle(frame, (w//2 - 200, h//2 + 50), (w//2 + 200, h//2 + 70), (100, 95, 90), -1)
+
+            # Company logo placeholder
+            cv2.circle(frame, (w//2, 150), 60, (200, 195, 190), -1)
+            cv2.putText(frame, "AEGIS", (w//2 - 50, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, (80, 75, 70), 2)
+
+            # Plants
+            for px in [150, w - 150]:
+                cv2.rectangle(frame, (px - 25, h//2 + 80), (px + 25, h * 2 // 3), (90, 80, 70), -1)
+                cv2.ellipse(frame, (px, h//2 + 40), (50, 60), 0, 0, 360, (60, 120, 50), -1)
+
+            # Seating area
+            for seat_x in [300, 450, 830, 980]:
+                cv2.rectangle(frame, (seat_x - 40, h//2 + 100), (seat_x + 40, h * 2 // 3 - 20), (70, 80, 100), -1)
+
+            # Lighting (ceiling spots)
+            for lx in range(200, w, 250):
+                cv2.circle(frame, (lx, 30), 20, (255, 250, 240), -1)
+                # Light cone
+                pts = np.array([[lx - 5, 50], [lx + 5, 50], [lx + 80, h//2], [lx - 80, h//2]], np.int32)
+                overlay = frame.copy()
+                cv2.fillPoly(overlay, [pts], (250, 248, 240))
+                cv2.addWeighted(overlay, 0.1, frame, 0.9, 0, frame)
+
+            # "ALL SYSTEMS OPERATIONAL"
+            cv2.rectangle(frame, (w//2 - 180, h - 100), (w//2 + 180, h - 60), (50, 120, 50), -1)
+            cv2.putText(frame, "ALL SYSTEMS OPERATIONAL", (w//2 - 165, h - 72), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 255, 200), 2)
+
+            # Subtle scan line moving down
+            scan_y = int((t * 100) % h)
+            cv2.line(frame, (0, scan_y), (w, scan_y), (200, 255, 200), 1)
+
+            vision.last_features["yolo_objects"] = []
+            vision.last_features["yolo_counts"] = {}
+            vision.last_features["yolo_summary"] = "✅ All clear - No threats detected"
+            vision.last_features["brightness"] = 170
+            vision.last_features["motion"] = 2
+
+            state.detection_boxes = []
+
+        # =================================================================
+        # PROFESSIONAL HUD OVERLAY
+        # =================================================================
+
+        # Top status bar
+        cv2.rectangle(frame, (0, 0), (w, 55), (15, 17, 22), -1)
+        cv2.line(frame, (0, 55), (w, 55), (60, 65, 75), 1)
+
+        # AEGIS Logo
+        cv2.putText(frame, "AEGIS", (15, 38), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 200, 50), 2)
+        cv2.putText(frame, "SENTINEL", (120, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1)
+
+        # Status indicator
+        is_threat = scenario.get("threat", False)
+        status_color = (0, 0, 255) if is_threat else (0, 220, 100)
+        status_text = "THREAT DETECTED" if is_threat else "MONITORING"
+
+        # Pulsing status dot
+        pulse = abs(np.sin(t * 4))
+        dot_r = int(8 + pulse * 4) if is_threat else 6
+        cv2.circle(frame, (280, 28), dot_r, status_color, -1)
+        cv2.putText(frame, status_text, (300, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.55, status_color, 2)
 
         # Parallax AI badge
-        cv2.rectangle(frame, (w - 350, 8), (w - 230, 42), (80, 50, 120), -1)
-        cv2.putText(frame, "PARALLAX AI", (w - 345, 32),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 180, 255), 1)
+        cv2.rectangle(frame, (w - 185, 12), (w - 15, 45), (80, 50, 130), -1)
+        cv2.putText(frame, "PARALLAX AI", (w - 175, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (220, 200, 255), 2)
 
-        # Timestamp
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        cv2.putText(frame, timestamp, (w // 2 - 100, h - 15),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+        # Live timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.") + f"{int(t * 100) % 100:02d}"
+        cv2.putText(frame, timestamp, (w//2 - 100, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 155, 160), 1)
+
+        # Bottom info bar
+        cv2.rectangle(frame, (0, h - 45), (w, h), (15, 17, 22), -1)
+        cv2.line(frame, (0, h - 45), (w, h - 45), (60, 65, 75), 1)
+
+        # Scene description
+        scene_text = scenario["name"]
+        cv2.putText(frame, scene_text, (15, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (200, 200, 200), 2)
+
+        # AI Pipeline indicator
+        cv2.putText(frame, "7-STAGE AI PIPELINE", (w - 220, h - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (120, 180, 255), 1)
+
+        # Pipeline stage dots (showing activity)
+        for i in range(7):
+            dot_x = w - 210 + i * 25
+            active = (int(t * 3) % 7) >= i
+            color = (100, 200, 255) if active else (50, 60, 70)
+            cv2.circle(frame, (dot_x, h - 10), 5, color, -1)
+
+        # FPS counter
+        cv2.putText(frame, "30 FPS", (w - 80, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 200, 100), 1)
+
+        # Scan counter
+        cv2.putText(frame, f"SCAN #{state.scan_count:05d}", (350, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+
+        # Local AI indicator
+        cv2.rectangle(frame, (520, h - 38), (680, h - 8), (40, 80, 40), -1)
+        cv2.putText(frame, "100% LOCAL AI", (530, h - 17), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 255, 150), 1)
+
+        # Corner markers (security cam aesthetic)
+        marker_len = 30
+        marker_color = status_color
+        # Top-left
+        cv2.line(frame, (5, 60), (5, 60 + marker_len), marker_color, 2)
+        cv2.line(frame, (5, 60), (5 + marker_len, 60), marker_color, 2)
+        # Top-right
+        cv2.line(frame, (w - 5, 60), (w - 5, 60 + marker_len), marker_color, 2)
+        cv2.line(frame, (w - 5, 60), (w - 5 - marker_len, 60), marker_color, 2)
+        # Bottom-left
+        cv2.line(frame, (5, h - 50), (5, h - 50 - marker_len), marker_color, 2)
+        cv2.line(frame, (5, h - 50), (5 + marker_len, h - 50), marker_color, 2)
+        # Bottom-right
+        cv2.line(frame, (w - 5, h - 50), (w - 5, h - 50 - marker_len), marker_color, 2)
+        cv2.line(frame, (w - 5, h - 50), (w - 5 - marker_len, h - 50), marker_color, 2)
+
+        # Subtle film grain for authenticity
+        grain = np.random.randint(-5, 5, frame.shape, dtype=np.int16)
+        frame = np.clip(frame.astype(np.int16) + grain, 0, 255).astype(np.uint8)
 
         return frame
     
